@@ -58,10 +58,10 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             # Use the model to classify this batch of input data
             pfs, pooled, _ = net(xs, inference=True)
             pooled = pooled.squeeze(0) 
-            pfs = pfs.squeeze(0) 
+            pfs = pfs.squeeze(0) # pfs.shape -> [768, 26, 26] (after squeeze)
             
-            for p in range(pooled.shape[0]):
-                c_weight = torch.max(classification_weights[:,p]) 
+            for p in range(pooled.shape[0]): # pooled.shape -> [768] (== num of prototypes)
+                c_weight = torch.max(classification_weights[:,p]) # classification_weights[:,p].shape -> [200] (== num of classes)
                 if c_weight > 1e-3:#ignore prototypes that are not relevant to any class
                     if p not in topks.keys():
                         topks[p] = []
@@ -87,7 +87,7 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             if score > 0.1:  #in case prototypes have fewer than k well-related patches
                 found = True
         if not found:
-            prototypes_not_used.append(p)
+            prototypes_not_used.append(p) # meaning of the topk scores none are above 0.1, they'll still be in alli 
 
     print(len(prototypes_not_used), "prototypes do not have any similarity score > 0.1. Will be ignored in visualisation.")
     abstained = 0
@@ -279,23 +279,26 @@ def get_img_coordinates(img_size, softmaxes_shape, patchsize, skip, h_idx, w_idx
     # in case latent output size is 26x26. For convnext with smaller strides. 
     if softmaxes_shape[1] == 26 and softmaxes_shape[2] == 26:
         #Since the outer latent patches have a smaller receptive field, skip size is set to 4 for the first and last patch. 8 for rest.
+
         h_coor_min = max(0,(h_idx-1)*skip+4)
         if h_idx < softmaxes_shape[-1]-1:
             h_coor_max = h_coor_min + patchsize
         else:
             h_coor_min -= 4
             h_coor_max = h_coor_min + patchsize
+            
         w_coor_min = max(0,(w_idx-1)*skip+4)
         if w_idx < softmaxes_shape[-1]-1:
             w_coor_max = w_coor_min + patchsize
         else:
             w_coor_min -= 4
             w_coor_max = w_coor_min + patchsize
+        
     else:
         h_coor_min = h_idx*skip
         h_coor_max = min(img_size, h_idx*skip+patchsize)
         w_coor_min = w_idx*skip
-        w_coor_max = min(img_size, w_idx*skip+patchsize)                                    
+        w_coor_max = min(img_size, w_idx*skip+patchsize)  
     
     if h_idx == softmaxes_shape[1]-1:
         h_coor_max = img_size

@@ -253,7 +253,7 @@ def get_topk_cub(net, projectloader, k, epoch, device, args):
     with open(csvfilepath, "w", newline='') as csvfile:
         print("Writing CSV file with top k image patches..", flush=True)
         writer = csv.writer(csvfile, delimiter=',')
-        writer.writerow(["prototype", "img name", "h_min_224", "h_max_224", "w_min_224", "w_max_224"])
+        writer.writerow(["prototype", "img name", "h_min_224", "h_max_224", "w_min_224", "w_max_224", "scores"])
         for _, prototype in protoype_iter:
             df = pd.DataFrame(scores_per_prototype[prototype], columns=['img_id', 'scores'])
             topk = df.nlargest(k, 'scores')
@@ -272,7 +272,7 @@ def get_topk_cub(net, projectloader, k, epoch, device, args):
                     _, location_w_idx = torch.max(location_h, dim=0)
                     location = (location_h_idx[location_w_idx].item(), location_w_idx.item())
                     h_coor_min, h_coor_max, w_coor_min, w_coor_max = get_img_coordinates(args.image_size, pfs.shape, patchsize, skip, location[0], location[1])
-                    proto_img_coordinates.append([prototype, imgname, h_coor_min, h_coor_max, w_coor_min, w_coor_max])
+                    proto_img_coordinates.append([prototype, imgname, h_coor_min, h_coor_max, w_coor_min, w_coor_max, row['scores']])
             # write intermediate results in case of large dataset
             if len(proto_img_coordinates)> 10000:
                 writer.writerows(proto_img_coordinates) 

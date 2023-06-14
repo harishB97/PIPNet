@@ -19,7 +19,19 @@ def get_data(args: argparse.Namespace):
     random.seed(args.seed)
     np.random.seed(args.seed)
     if args.dataset =='CUB-200-2011':     
-        return get_birds(True, './data/CUB_200_2011/dataset/train_crop', './data/CUB_200_2011/dataset/train', './data/CUB_200_2011/dataset/test_crop', args.image_size, args.seed, args.validation_size, './data/CUB_200_2011/dataset/train', './data/CUB_200_2011/dataset/test_full')
+        return get_birds(True, '/home/harishbabu/data/CUB_200_2011/dataset/train_crop', 
+                                '/home/harishbabu/data/CUB_200_2011/dataset/train', 
+                                '/home/harishbabu/data/CUB_200_2011/dataset/test_crop', 
+                                args.image_size, args.seed, args.validation_size, 
+                                '/home/harishbabu/data/CUB_200_2011/dataset/train', 
+                                '/home/harishbabu/data/CUB_200_2011/dataset/test_full')
+    if args.dataset =='CUB-190-imgnet':
+        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
+                                args.image_size, args.seed, args.validation_size, 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset == 'pets':
         return get_pets(True, './data/PETS/dataset/train','./data/PETS/dataset/train','./data/PETS/dataset/test', args.image_size, args.seed, args.validation_size)
     if args.dataset == 'partimagenet': #use --validation_size of 0.2
