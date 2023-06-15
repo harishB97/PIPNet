@@ -117,6 +117,10 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='./experiments',
                         help='Folder with images that PIP-Net will predict and explain, that are not in the training or test set. E.g. images with 2 objects or OOD image. Images should be in subfolder. E.g. images in ./experiments/images/, and argument --./experiments')
+    parser.add_argument("--phylo_config",
+                        type=str,
+                        default=None, 
+                        help='path to the yaml file containing "phylogeny_path" and "phyloDistances_string"') # "./configs/cub27_phylogeny.yaml"
 
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:

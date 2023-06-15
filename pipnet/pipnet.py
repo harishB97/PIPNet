@@ -6,6 +6,7 @@ from features.resnet_features import resnet18_features, resnet34_features, resne
 from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features 
 import torch
 from torch import Tensor
+from util.node import Node
 
 class PIPNet(nn.Module):
     def __init__(self,
@@ -15,7 +16,9 @@ class PIPNet(nn.Module):
                  args: argparse.Namespace,
                  add_on_layers: nn.Module,
                  pool_layer: nn.Module,
-                 classification_layer: nn.Module
+                 classification_layer: nn.Module,
+                 num_parent_nodes: int,
+                 root: Node
                  ):
         super().__init__()
         assert num_classes > 0
@@ -27,18 +30,28 @@ class PIPNet(nn.Module):
         self._pool = pool_layer
         self._classification = classification_layer
         self._multiplier = classification_layer.normalization_multiplier
+        self._softmax = nn.Softmax(dim=1)
+        self._num_parent_nodes = num_parent_nodes
+        self.root = root
 
     def forward(self, xs,  inference=False):
         features = self._net(xs) 
-        proto_features = self._add_on(features)
-        pooled = self._pool(proto_features)
-        if inference:
-            clamped_pooled = torch.where(pooled < 0.1, 0., pooled)  #during inference, ignore all prototypes that have 0.1 similarity or lower
-            out = self._classification(clamped_pooled) #shape (bs*2, num_classes)
-            return proto_features, clamped_pooled, out
-        else:
-            out = self._classification(pooled) #shape (bs*2, num_classes) 
-            return proto_features, pooled, out
+        proto_features_all_nodes = self._add_on(features)
+        proto_features = {}
+        pooled = {}
+        out = {}
+        for i, node in enumerate(self.root.nodes_with_children()):
+            proto_features_i = proto_features_all_nodes[i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
+            proto_features_i = self._softmax(proto_features_i)
+            pooled_i = self._pool(proto_features_i)
+            if inference:
+                pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
+            out_i = self._classification(pooled_i) #shape (bs*2, num_classes) 
+            proto_features[node.name] = proto_features_i
+            pooled[node.name] = pooled_i
+            out[node.name] = out_i
+
+        return proto_features, pooled, out
 
 
 base_architecture_to_features = {'resnet18': resnet18_features,
@@ -71,7 +84,7 @@ class NonNegLinear(nn.Module):
         return F.linear(input,torch.relu(self.weight), self.bias)
 
 
-def get_network(num_classes: int, args: argparse.Namespace): 
+def get_network(num_classes: int, args: argparse.Namespace, root=None): 
     features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)
     features_name = str(features).upper()
     if 'next' in args.net:
@@ -82,20 +95,38 @@ def get_network(num_classes: int, args: argparse.Namespace):
     else:
         raise Exception('other base architecture NOT implemented')
     
-    
+    # original
+    # if args.num_features == 0:
+    #     num_prototypes = first_add_on_layer_in_channels
+    #     print("Number of prototypes: ", num_prototypes, flush=True)
+    #     add_on_layers = nn.Sequential(
+    #         nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
+    # )
+    # else:
+    #     num_prototypes = args.num_features
+    #     print("Number of prototypes set from", first_add_on_layer_in_channels, "to", num_prototypes,". Extra 1x1 conv layer added. Not recommended.", flush=True)
+    #     add_on_layers = nn.Sequential(
+    #         nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True), 
+    #         nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
+    # )
+        
     if args.num_features == 0:
         num_prototypes = first_add_on_layer_in_channels
-        print("Number of prototypes: ", num_prototypes, flush=True)
-        add_on_layers = nn.Sequential(
-            nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
-    )
     else:
         num_prototypes = args.num_features
-        print("Number of prototypes set from", first_add_on_layer_in_channels, "to", num_prototypes,". Extra 1x1 conv layer added. Not recommended.", flush=True)
-        add_on_layers = nn.Sequential(
-            nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True), 
-            nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
-    )
+    print("Number of prototypes: ", num_prototypes, flush=True)
+
+    # parent_nodes = root.nodes_with_children()
+    # add_on_layers = {}
+    # for node in parent_nodes:
+    #     add_on_layers[node.name] = nn.Sequential(
+    #                                             nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True), 
+    #                                             nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
+    #                                         )
+        
+    parent_nodes = root.nodes_with_children()
+    add_on_layers = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes * len(parent_nodes), kernel_size=1, stride = 1, padding=0, bias=True)
+
     pool_layer = nn.Sequential(
                 nn.AdaptiveMaxPool2d(output_size=(1,1)), #outputs (bs, ps,1,1)
                 nn.Flatten() #outputs (bs, ps)

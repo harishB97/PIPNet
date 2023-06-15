@@ -17,6 +17,10 @@ from shutil import copy
 import matplotlib.pyplot as plt
 from copy import deepcopy
 
+from omegaconf import OmegaConf
+from util.node import Node
+from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
+
 def run_pipnet(args=None):
 
     torch.manual_seed(args.seed)
@@ -32,6 +36,31 @@ def run_pipnet(args=None):
     print("Log dir: ", args.log_dir, flush=True)
     # Log the run arguments
     save_args(args, log.metadata_dir)
+
+    if args.phylo_config:
+        phylo_config = OmegaConf.load(args.phylo_config)
+
+    if args.phylo_config:
+		# construct the phylo tree
+        if phylo_config.phyloDistances_string == 'None':
+            root = construct_phylo_tree(phylo_config.phylogeny_path)
+            print('-'*25 + ' No discretization ' + '-'*25)
+        else:
+            root = construct_discretized_phylo_tree(phylo_config.phylogeny_path, phylo_config.phyloDistances_string)
+            print('-'*25 + ' Discretized ' + '-'*25)
+    else:
+        # construct the tree (original hierarchy as described in the paper)
+        root = Node("root")
+        root.add_children(['animal','vehicle','everyday_object','weapon','scuba_diver'])
+        root.add_children_to('animal',['non_primate','primate'])
+        root.add_children_to('non_primate',['African_elephant','giant_panda','lion'])
+        root.add_children_to('primate',['capuchin','gibbon','orangutan'])
+        root.add_children_to('vehicle',['ambulance','pickup','sports_car'])
+        root.add_children_to('everyday_object',['laptop','sandal','wine_bottle'])
+        root.add_children_to('weapon',['assault_rifle','rifle'])
+        # flat root
+        # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
+    root.assign_all_descendents()
     
     gpu_list = args.gpu_ids.split(',')
     device_ids = []
@@ -69,7 +98,7 @@ def run_pipnet(args=None):
             print("Classes: ", str(classes), flush=True)
     
     # Create a convolutional network based on arguments and add 1x1 conv layer
-    feature_net, add_on_layers, pool_layer, classification_layer, num_prototypes = get_network(len(classes), args)
+    feature_net, add_on_layers, pool_layer, classification_layer, num_prototypes = get_network(len(classes), args, root)
    
     # Create a PIP-Net
     net = PIPNet(num_classes=len(classes),
@@ -78,7 +107,9 @@ def run_pipnet(args=None):
                     args = args,
                     add_on_layers = add_on_layers,
                     pool_layer = pool_layer,
-                    classification_layer = classification_layer
+                    classification_layer = classification_layer,
+                    num_parent_nodes = len(root.nodes_with_children()),
+                    root = root
                     )
     net = net.to(device=device)
     net = nn.DataParallel(net, device_ids = device_ids)    
@@ -361,11 +392,11 @@ if __name__ == '__main__':
     if not os.path.isdir(args.log_dir):
         os.mkdir(args.log_dir)
     
-    sys.stdout.close()
-    sys.stderr.close()
-    sys.stdout = open(print_dir, 'w')
-    sys.stderr = open(tqdm_dir, 'w')
+    # sys.stdout.close()
+    # sys.stderr.close()
+    # sys.stdout = open(print_dir, 'w')
+    # sys.stderr = open(tqdm_dir, 'w')
     run_pipnet(args)
     
-    sys.stdout.close()
-    sys.stderr.close()
+    # sys.stdout.close()
+    # sys.stderr.close()
