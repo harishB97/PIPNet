@@ -11,6 +11,33 @@ from torch import Tensor
 import random
 from sklearn.model_selection import train_test_split
 
+import torch
+from torch.utils.data import DataLoader
+
+class ModifiedLabelLoader(DataLoader):
+    def __init__(self, dataloader, node, *args, **kwargs):
+        super(ModifiedLabelLoader, self).__init__(*args, **kwargs)
+        self.dataloader = dataloader
+        self.node = node
+        self.label2name = dataloader.dataset.label_to_name
+        self.modifiedlabel2name = {label: name for name, label in node.children_to_labels.items()}
+
+    def __iter__(self):
+        for batch_images, batch_labels in self.dataloader:
+            batch_names = [self.label2name[y.item()] for y in batch_labels]
+            children_idx = torch.tensor([name in self.node.descendents for name in batch_names])
+            batch_names_coarsest = [self.node.closest_descendent_for(name).name for name in batch_names if name in self.node.descendents] # size of sum(children_idx)
+            modified_labels = torch.tensor([self.node.children_to_labels[name] for name in batch_names_coarsest]).cuda() # size of sum(children_idx)
+
+            if len(modified_labels) == 0:
+                continue
+
+            batch_images = batch_images[children_idx]
+            original_labels = batch_labels[children_idx]
+
+            yield batch_images, original_labels, modified_labels
+
+
 def get_data(args: argparse.Namespace): 
     """
     Load the proper dataset based on the parsed arguments

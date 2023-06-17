@@ -193,16 +193,19 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
                 params_backbone.append(param)
     else:
         print("Network is not ResNet or ConvNext.", flush=True)     
+
     classification_weight = []
     classification_bias = []
-    for name, param in net.module._classification.named_parameters():
-        if 'weight' in name:
-            classification_weight.append(param)
-        elif 'multiplier' in name:
-            param.requires_grad = False
-        else:
-            if args.bias:
-                classification_bias.append(param)
+    for attr in dir(net.module):
+        if attr.endswith('_classification'):
+            for name, param in getattr(net.module, attr).named_parameters():
+                if 'weight' in name:
+                    classification_weight.append(param)
+                elif 'multiplier' in name:
+                    param.requires_grad = False # TBC remove/move this if the parameter is moved to pipnet
+                else:
+                    if args.bias:
+                        classification_bias.append(param)
     
     paramlist_net = [
             {"params": params_backbone, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},

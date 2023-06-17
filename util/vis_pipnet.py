@@ -9,10 +9,17 @@ import torchvision.transforms as transforms
 import torchvision
 from util.func import get_patch_size
 import random
+from util.data import ModifiedLabelLoader
 
 @torch.no_grad()                    
-def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10):
+def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10, node=None):
     print("Visualizing prototypes for topk...", flush=True)
+
+    label2name = projectloader.dataset.label_to_name
+    modifiedLabelLoader = ModifiedLabelLoader(projectloader, node)
+    projectloader = modifiedLabelLoader
+    coarse_label2name = modifiedLabelLoader.modifiedlabel2name
+
     dir = os.path.join(args.log_dir, foldername)
     if not os.path.exists(dir):
         os.makedirs(dir)
@@ -37,7 +44,8 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     
     # Make sure the model is in evaluation mode
     net.eval()
-    classification_weights = net.module._classification.weight
+    # classification_weights = net.module._classification.weight
+    classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
 
     # Show progress on progress bar
     img_iter = tqdm(enumerate(projectloader),
@@ -50,15 +58,15 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     images_seen = 0
     topks = dict()
     # Iterate through the training set
-    for i, (xs, ys) in img_iter:
+    for i, (xs, orig_y, ys) in img_iter:
         images_seen+=1
         xs, ys = xs.to(device), ys.to(device)
 
         with torch.no_grad():
             # Use the model to classify this batch of input data
             pfs, pooled, _ = net(xs, inference=True)
-            pooled = pooled.squeeze(0) 
-            pfs = pfs.squeeze(0) # pfs.shape -> [768, 26, 26] (after squeeze)
+            pooled = pooled[node.name].squeeze(0) 
+            pfs = pfs[node.name].squeeze(0) # pfs.shape -> [768, 26, 26] (after squeeze)
             
             for p in range(pooled.shape[0]): # pooled.shape -> [768] (== num of prototypes)
                 c_weight = torch.max(classification_weights[:,p]) # classification_weights[:,p].shape -> [200] (== num of classes)
@@ -97,9 +105,9 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                     mininterval=50.,
                     desc='Visualizing topk',
                     ncols=0)
-    for i, (xs, ys) in img_iter: #shuffle is false so should lead to same order as in imgs
+    for i, (xs, orig_y, ys) in img_iter: #shuffle is false so should lead to same order as in imgs
         if i in alli:
-            xs, ys = xs.to(device), ys.to(device)
+            xs, orig_y, ys = xs.to(device), orig_y.to(device), ys.to(device)
             for p in topks.keys():
                 if p not in prototypes_not_used:
                     for idx, score in topks[p]:
@@ -107,6 +115,9 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                             # Use the model to classify this batch of input data
                             with torch.no_grad():
                                 softmaxes, pooled, out = net(xs, inference=True) #softmaxes has shape (1, num_prototypes, W, H)
+                                softmaxes = softmaxes[node.name]
+                                pooled = pooled[node.name]
+                                out = out[node.name]
                                 outmax = torch.amax(out,dim=1)[0] #shape ([1]) because batch size of projectloader is 1
                                 if outmax.item() == 0.:
                                     abstained+=1
@@ -132,27 +143,85 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                                 img_tensor_patch = img_tensor[0, :, h_coor_min:h_coor_max, w_coor_min:w_coor_max]
                                         
                                 saved[p]+=1
-                                tensors_per_prototype[p].append(img_tensor_patch)
+                                tensors_per_prototype[p].append({'img_tensor': img_tensor, 'img_tensor_patch': img_tensor_patch, \
+                                                                'coords': (h_coor_min, h_coor_max, w_coor_min, w_coor_max), \
+                                                                'fine_label': orig_y, 'coarse_label': ys})
+                                # tensors_per_prototype[p].append((img_tensor_patch, orig_y, ys))
 
     print("Abstained: ", abstained, flush=True)
     all_tensors = []
     for p in range(net.module._num_prototypes):
+        # if saved[p]>0:
+        #     # add text next to each topk-grid, to easily see which prototype it is
+        #     text = "P "+str(p)
+        #     txtimage = Image.new("RGB", (img_tensor_patch.shape[1],img_tensor_patch.shape[2]), (0, 0, 0))
+        #     draw = D.Draw(txtimage)
+        #     draw.text((img_tensor_patch.shape[0]//2, img_tensor_patch.shape[1]//2), text, anchor='mm', fill="white")
+        #     txttensor = transforms.ToTensor()(txtimage)
+            
+        #     tensors_per_prototype[p].append(txttensor)
+
+        #     # add image label to each image to know its origin class
+
+        #     # save top-k image patches in grid
+        #     try:
+        #         grid = torchvision.utils.make_grid(tensors_per_prototype[p], nrow=k+1, padding=1)
+        #         torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
+        #         if saved[p]>=k:
+        #             all_tensors+=tensors_per_prototype[p]
+        #     except:
+        #         pass
+
         if saved[p]>0:
             # add text next to each topk-grid, to easily see which prototype it is
+
+            # create a grid of patches, add text next to each topk-grid, to easily see which prototype it is
+            patches = [x['img_tensor_patch'] for x in tensors_per_prototype[p]]
             text = "P "+str(p)
-            txtimage = Image.new("RGB", (img_tensor_patch.shape[1],img_tensor_patch.shape[2]), (0, 0, 0))
+            txtimage = Image.new("RGB", (patches[0].shape[1],patches[0].shape[2]), (0, 0, 0))
             draw = D.Draw(txtimage)
-            draw.text((img_tensor_patch.shape[0]//2, img_tensor_patch.shape[1]//2), text, anchor='mm', fill="white")
+            draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
             txttensor = transforms.ToTensor()(txtimage)
-            tensors_per_prototype[p].append(txttensor)
-            # save top-k image patches in grid
+            patches.append(txttensor)
             try:
-                grid = torchvision.utils.make_grid(tensors_per_prototype[p], nrow=k+1, padding=1)
+                grid = torchvision.utils.make_grid(patches, nrow=k+1, padding=1)
                 torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
                 if saved[p]>=k:
                     all_tensors+=tensors_per_prototype[p]
             except:
                 pass
+
+            # create a grid of images with bounding box, add text next to each topk-grid, to easily see which prototype it is
+            bb_img_tensors = []
+            for x in tensors_per_prototype[p]:
+                # add bounding box
+                h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
+                bb_img_tensor = torchvision.utils.draw_bounding_boxes(x['img_tensor'], boxes=(w_coor_min, h_coor_min, w_coor_max, h_coor_max), colors=(0, 255, 255))
+                bb_img_tensors.append(bb_img_tensor)
+                # add coarse and fine label to each of the topk image
+                text = f"Coarse={coarse_label2name[x['coarse_label'].item()]}, Fine={label2name[x['fine_label'].item()][4:7]}" # fine label assumes cub name in the format cub_122_Harris_Sparrow
+                bb_img = F.to_pil_image(bb_img_tensor)
+                padding_top = 40
+                padding = (0, padding_top, 0, 0)  # Padding (left, top, right, bottom)
+                bb_img_padded = Image.new("RGB", (bb_img.width, bb_img.height + padding_top), color=(0, 0, 0))
+                bb_img_padded.paste(bb_img, padding)
+                draw = D.Draw(bb_img_padded)
+                draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
+            # add prototype number and coarse labels to know the classes this prototype belongs to
+            relevant_proto_classes = torch.nonzero(classification_weights[:, p] > 3)
+            text = "P "+str(p) + f" belongs to: {','.join([x.item() for x in relevant_proto_classes])}"
+            txtimage = Image.new("RGB", (bb_img_tensors[0].shape[1],bb_img_tensors[0].shape[2]), (0, 0, 0))
+            draw = D.Draw(txtimage)
+            draw.text((bb_img_tensors[0].shape[0]//2, bb_img_tensors[0].shape[1]//2), text, anchor='mm', fill="white")
+            txttensor = transforms.ToTensor()(txtimage)
+            bb_img_tensors.append(txttensor)
+            try:
+                grid = torchvision.utils.make_grid(bb_img_tensors, nrow=k+1, padding=1)
+                torchvision.utils.save_image(grid,os.path.join(dir,"grid_bb_topk_%s.png"%(str(p))))
+            except:
+                pass
+
+
     if len(all_tensors)>0:
         grid = torchvision.utils.make_grid(all_tensors, nrow=k+1, padding=1)
         torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_all.png"))
@@ -161,8 +230,12 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     return topks
         
 
-def visualize(net, projectloader, num_classes, device, foldername, args: argparse.Namespace):
+def visualize(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, node=None):
     print("Visualizing prototypes...", flush=True)
+
+    modifiedLabelLoader = ModifiedLabelLoader(projectloader, node)
+    projectloader = modifiedLabelLoader
+
     dir = os.path.join(args.log_dir, foldername)
     if not os.path.exists(dir):
         os.makedirs(dir)
@@ -198,7 +271,10 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
 
     # Make sure the model is in evaluation mode
     net.eval()
-    classification_weights = net.module._classification.weight
+
+    # classification_weights = net.module._classification.weight
+    classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+
     # Show progress on progress bar
     img_iter = tqdm(enumerate(projectloader),
                     total=len(projectloader),
@@ -217,6 +293,8 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
         # Use the model to classify this batch of input data
         with torch.no_grad():
             softmaxes, _, out = net(xs, inference=True) 
+            softmaxes = softmaxes[node.name]
+            out = out[node.name]
 
         max_per_prototype, max_idx_per_prototype = torch.max(softmaxes, dim=0)
         # In PyTorch, images are represented as [channels, height, width]

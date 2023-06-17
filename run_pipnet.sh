@@ -44,6 +44,6 @@ python main.py --log_dir './runs/001-CUB-190-imgnet_cnext26_img=224' \
                # --disable_pretrained False \
                # --weighted_loss False \
 
-# python main.py --log_dir ./runs/checking --dataset CUB-200-2011 --validation_size 0.0 --net convnext_tiny_26 --batch_size 64 --batch_size_pretrain 128 --epochs 0 --epochs_pretrain 0 --optimizer 'Adam' --lr 0.05 --lr_block 0.0005 --lr_net 0.0005 --weight_decay 0.0 --num_features 0 --image_size 224 --state_dict_dir_net '' --freeze_epochs 10 --dir_for_saving_images 'Visualization_results' --seed 1 --gpu_ids '' --num_workers 8 --phylo_config ./configs/cub27_phylogeny.yaml
+# python main.py --log_dir ./runs/checking --dataset CUB-190-imgnet --validation_size 0.0 --net convnext_tiny_26 --batch_size 64 --batch_size_pretrain 128 --epochs 1 --epochs_pretrain 1 --optimizer 'Adam' --lr 0.05 --lr_block 0.0005 --lr_net 0.0005 --weight_decay 0.0 --num_features 0 --image_size 224 --state_dict_dir_net '' --freeze_epochs 10 --dir_for_saving_images 'Visualization_results' --seed 1 --gpu_ids '' --num_workers 8 --phylo_config ./configs/cub27_phylogeny.yaml
 
 exit;

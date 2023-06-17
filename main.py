@@ -5,7 +5,7 @@ from util.args import get_args, save_args, get_optimizer_nn
 from util.data import get_dataloaders
 from util.func import init_weights_xavier
 from pipnet.train import train_pipnet
-from pipnet.test import eval_pipnet, get_thresholds, eval_ood
+# from pipnet.test import eval_pipnet, get_thresholds, eval_ood
 from util.eval_cub_csv import eval_prototypes_cub_parts_csv, get_topk_cub, get_proto_patches_cub
 import torch
 from util.vis_pipnet import visualize, visualize_topk
@@ -19,6 +19,7 @@ from copy import deepcopy
 
 from omegaconf import OmegaConf
 from util.node import Node
+
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 
 def run_pipnet(args=None):
@@ -177,7 +178,8 @@ def run_pipnet(args=None):
             param.requires_grad = True
         for param in net.module._add_on.parameters():
             param.requires_grad = True
-        for param in net.module._classification.parameters():
+        for val in net.module._classification.values():
+            param = val.parameters()
             param.requires_grad = False
         for param in params_to_freeze:
             param.requires_grad = True # can be set to False when you want to freeze more layers
@@ -200,7 +202,8 @@ def run_pipnet(args=None):
         net.train()
     with torch.no_grad():
         if 'convnext' in args.net and args.epochs_pretrain > 0:
-            topks = visualize_topk(net, projectloader, len(classes), device, 'visualised_pretrained_prototypes_topk', args)
+            for node in root.nodes_with_children():
+                topks = visualize_topk(net, projectloader, len(classes), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
         
     # SECOND TRAINING PHASE
     # re-initialize optimizers and schedulers for second training phase
@@ -272,9 +275,9 @@ def run_pipnet(args=None):
         train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, args.epochs, device, pretrain=False, finetune=finetune)
         lrs_net+=train_info['lrs_net']
         lrs_classifier+=train_info['lrs_class']
-        # Evaluate model
-        eval_info = eval_pipnet(net, testloader, epoch, device, log)
-        log.log_values('log_epoch_overview', epoch, eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], train_info['train_accuracy'], train_info['loss'])
+        # Evaluate model - not doing this for now requires modification in test.py
+        # eval_info = eval_pipnet(net, testloader, epoch, device, log)
+        # log.log_values('log_epoch_overview', epoch, eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], train_info['train_accuracy'], train_info['loss'])
             
         with torch.no_grad():
             net.eval()
@@ -308,8 +311,10 @@ def run_pipnet(args=None):
                 torch.nn.init.zeros_(net.module._classification.weight[:,prot])
                 set_to_zero.append(prot)
         print("Weights of prototypes", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
-        eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
-        log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
+
+        # Not doing this for now requires modification in test.py
+        # eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
+        # log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
 
     print("classifier weights: ", net.module._classification.weight, flush=True)
     print("Classifier weights nonzero: ", net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)], (net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)]).shape, flush=True)
@@ -358,26 +363,26 @@ def run_pipnet(args=None):
             vis_pred_experiments(net, args.extra_test_image_folder, classes, device, args)
 
 
-    # EVALUATE OOD DETECTION
-    ood_datasets = ["CARS", "CUB-200-2011", "pets"]
-    for percent in [95.]:
-        print("\nOOD Evaluation for epoch", epoch,"with percent of", percent, flush=True)
-        _, _, _, class_thresholds = get_thresholds(net, testloader, epoch, device, percent, log)
-        print("Thresholds:", class_thresholds, flush=True)
-        # Evaluate with in-distribution data
-        id_fraction = eval_ood(net, testloader, epoch, device, class_thresholds)
-        print("ID class threshold ID fraction (TPR) with percent",percent,":", id_fraction, flush=True)
+    # EVALUATE OOD DETECTION - not doing this for now
+    # ood_datasets = ["CARS", "CUB-200-2011", "pets"]
+    # for percent in [95.]:
+    #     print("\nOOD Evaluation for epoch", epoch,"with percent of", percent, flush=True)
+    #     _, _, _, class_thresholds = get_thresholds(net, testloader, epoch, device, percent, log)
+    #     print("Thresholds:", class_thresholds, flush=True)
+    #     # Evaluate with in-distribution data
+    #     id_fraction = eval_ood(net, testloader, epoch, device, class_thresholds)
+    #     print("ID class threshold ID fraction (TPR) with percent",percent,":", id_fraction, flush=True)
         
-        # Evaluate with out-of-distribution data
-        for ood_dataset in ood_datasets:
-            if ood_dataset != args.dataset:
-                print("\n OOD dataset: ", ood_dataset,flush=True)
-                ood_args = deepcopy(args)
-                ood_args.dataset = ood_dataset
-                _, _, _, _, _,ood_testloader, _, _ = get_dataloaders(ood_args, device)
+    #     # Evaluate with out-of-distribution data
+    #     for ood_dataset in ood_datasets:
+    #         if ood_dataset != args.dataset:
+    #             print("\n OOD dataset: ", ood_dataset,flush=True)
+    #             ood_args = deepcopy(args)
+    #             ood_args.dataset = ood_dataset
+    #             _, _, _, _, _,ood_testloader, _, _ = get_dataloaders(ood_args, device)
                 
-                id_fraction = eval_ood(net, ood_testloader, epoch, device, class_thresholds)
-                print(args.dataset, "- OOD", ood_dataset, "class threshold ID fraction (FPR) with percent",percent,":", id_fraction, flush=True)                
+    #             id_fraction = eval_ood(net, ood_testloader, epoch, device, class_thresholds)
+    #             print(args.dataset, "- OOD", ood_dataset, "class threshold ID fraction (FPR) with percent",percent,":", id_fraction, flush=True)                
 
     print("Done!", flush=True)
 

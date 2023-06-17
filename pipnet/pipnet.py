@@ -16,7 +16,7 @@ class PIPNet(nn.Module):
                  args: argparse.Namespace,
                  add_on_layers: nn.Module,
                  pool_layer: nn.Module,
-                 classification_layer: nn.Module,
+                 classification_layers: dict, #nn.Module,
                  num_parent_nodes: int,
                  root: Node
                  ):
@@ -28,8 +28,10 @@ class PIPNet(nn.Module):
         self._net = feature_net
         self._add_on = add_on_layers
         self._pool = pool_layer
-        self._classification = classification_layer
-        self._multiplier = classification_layer.normalization_multiplier
+        for node_name in classification_layers:
+            setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
+        # self._classification = classification_layers
+        self._multiplier = classification_layers.normalization_multiplier # TBC init the parameter here instead of in classification layer
         self._softmax = nn.Softmax(dim=1)
         self._num_parent_nodes = num_parent_nodes
         self.root = root
@@ -46,7 +48,7 @@ class PIPNet(nn.Module):
             pooled_i = self._pool(proto_features_i)
             if inference:
                 pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
-            out_i = self._classification(pooled_i) #shape (bs*2, num_classes) 
+            out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
             proto_features[node.name] = proto_features_i
             pooled[node.name] = pooled_i
             out[node.name] = out_i
@@ -132,12 +134,16 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
                 nn.Flatten() #outputs (bs, ps)
                 ) 
     
-    if args.bias:
-        classification_layer = NonNegLinear(num_prototypes, num_classes, bias=True)
-    else:
-        classification_layer = NonNegLinear(num_prototypes, num_classes, bias=False)
+    # if args.bias:
+    #     classification_layer = NonNegLinear(num_prototypes, num_classes, bias=True)
+    # else:
+    #     classification_layer = NonNegLinear(num_prototypes, num_classes, bias=False)
+
+    classification_layers = {}
+    for node in parent_nodes:
+        classification_layers[node.name] = NonNegLinear(num_prototypes, node.num_children(), bias=True if args.bias else False)
         
-    return features, add_on_layers, pool_layer, classification_layer, num_prototypes
+    return features, add_on_layers, pool_layer, classification_layers, num_prototypes
 
 
     
