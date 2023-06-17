@@ -128,22 +128,31 @@ def run_pipnet(args=None):
                 optimizer_net.load_state_dict(checkpoint['optimizer_net_state_dict']) 
             except:
                 pass
-            if torch.mean(net.module._classification.weight).item() > 1.0 and torch.mean(net.module._classification.weight).item() < 3.0 and torch.count_nonzero(torch.relu(net.module._classification.weight-1e-5)).float().item() > 0.8*(num_prototypes*len(classes)): #assume that the linear classification layer is not yet trained (e.g. when loading a pretrained backbone only)
-                print("We assume that the classification layer is not yet trained. We re-initialize it...", flush=True)
-                torch.nn.init.normal_(net.module._classification.weight, mean=1.0,std=0.1) 
-                torch.nn.init.constant_(net.module._multiplier, val=2.)
-                print("Classification layer initialized with mean", torch.mean(net.module._classification.weight).item(), flush=True)
-                if args.bias:
-                    torch.nn.init.constant_(net.module._classification.bias, val=0.)
-            else:
-                if 'optimizer_classifier_state_dict' in checkpoint.keys():
-                    optimizer_classifier.load_state_dict(checkpoint['optimizer_classifier_state_dict'])
+
+            loading_pretrained_only_model = False
+            for attr in dir(net.module):
+                if attr.endwsith('_classification'):
+                    # assume that the linear classification layer is not yet trained (e.g. when loading a pretrained backbone only)
+                    if torch.mean(getattr(net.module, attr).weight).item() > 1.0 \
+                        and torch.mean(getattr(net.module, attr).weight).item() < 3.0 \
+                            and torch.count_nonzero(torch.relu(getattr(net.module, attr).weight-1e-5)).float().item() > 0.8*(num_prototypes*len(classes)): 
+                        print("We assume that the classification layer is not yet trained. We re-initialize it...", flush=True)
+                        torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
+                        torch.nn.init.constant_(net.module._multiplier, val=2.)
+                        print("Classification layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+                        if args.bias:
+                            torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
+                        loading_pretrained_only_model = True
+            if loading_pretrained_only_model and 'optimizer_classifier_state_dict' in checkpoint.keys():
+                optimizer_classifier.load_state_dict(checkpoint['optimizer_classifier_state_dict'])
             
         else:
             net.module._add_on.apply(init_weights_xavier)
-            torch.nn.init.normal_(net.module._classification.weight, mean=1.0,std=0.1) 
-            if args.bias:
-                torch.nn.init.constant_(net.module._classification.bias, val=0.)
+            for attr in dir(net.module):
+                if attr.endwsith('_classification'):
+                    torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
+                    if args.bias:
+                        torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
 

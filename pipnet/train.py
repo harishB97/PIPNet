@@ -78,9 +78,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Perform a forward pass through the network
         proto_features, pooled, out = net(torch.cat([xs1, xs2]))
         
-        # TBC - change norm multiplier
         loss, acc = calculate_loss(proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, \
-                                   net.module._classification.normalization_multiplier, pretrain, finetune, criterion, \
+                                   net.module._multiplier, pretrain, finetune, criterion, \
                                     train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy)
         
         # Compute the gradient
@@ -103,11 +102,15 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             total_loss+=loss.item()
 
         if not pretrain:
-            with torch.no_grad(): #TBC - no _classification anymore
-                net.module._classification.weight.copy_(torch.clamp(net.module._classification.weight.data - 1e-3, min=0.)) #set weights in classification layer < 1e-3 to zero
-                net.module._classification.normalization_multiplier.copy_(torch.clamp(net.module._classification.normalization_multiplier.data, min=1.0)) 
-                if net.module._classification.bias is not None:
-                    net.module._classification.bias.copy_(torch.clamp(net.module._classification.bias.data, min=0.))  
+            with torch.no_grad():
+                for attr in dir(net.module):
+                    if attr.endswith('_classification'):
+                        classification_layer = getattr(net.module, attr)
+                        classification_layer.weight.copy_(torch.clamp(classification_layer.weight.data - 1e-3, min=0.)) #set weights in classification layer < 1e-3 to zero
+                        if classification_layer.bias is not None:
+                            classification_layer.bias.copy_(torch.clamp(classification_layer.bias.data, min=0.))  
+                # YTIR - adding this because this was done in the original code, but why this is required this parameter is supposed to be constant & non-trainable
+                net.module._multiplier.copy_(torch.clamp(net.module._multiplier.data, min=1.0))
     train_info['train_accuracy'] = total_acc/float(i+1)
     train_info['loss'] = total_loss/float(i+1)
     train_info['lrs_net'] = lrs_net

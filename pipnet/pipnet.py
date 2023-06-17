@@ -31,7 +31,8 @@ class PIPNet(nn.Module):
         for node_name in classification_layers:
             setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
         # self._classification = classification_layers
-        self._multiplier = classification_layers.normalization_multiplier # TBC init the parameter here instead of in classification layer
+        self._multiplier = nn.Parameter(torch.ones((1,),requires_grad=True)) # this can directly be set to 2.0 and requires_grad=False, not sure why its not done
+        # self._multiplier = classification_layers.normalization_multiplier 
         self._softmax = nn.Softmax(dim=1)
         self._num_parent_nodes = num_parent_nodes
         self.root = root
