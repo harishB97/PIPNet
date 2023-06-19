@@ -99,7 +99,7 @@ def run_pipnet(args=None):
             print("Classes: ", str(classes), flush=True)
     
     # Create a convolutional network based on arguments and add 1x1 conv layer
-    feature_net, add_on_layers, pool_layer, classification_layer, num_prototypes = get_network(len(classes), args, root)
+    feature_net, add_on_layers, pool_layer, classification_layers, num_prototypes = get_network(len(classes), args, root)
    
     # Create a PIP-Net
     net = PIPNet(num_classes=len(classes),
@@ -108,7 +108,7 @@ def run_pipnet(args=None):
                     args = args,
                     add_on_layers = add_on_layers,
                     pool_layer = pool_layer,
-                    classification_layer = classification_layer,
+                    classification_layers = classification_layers,
                     num_parent_nodes = len(root.nodes_with_children()),
                     root = root
                     )
@@ -131,11 +131,11 @@ def run_pipnet(args=None):
 
             loading_pretrained_only_model = False
             for attr in dir(net.module):
-                if attr.endwsith('_classification'):
+                if attr.endswith('_classification'):
                     # assume that the linear classification layer is not yet trained (e.g. when loading a pretrained backbone only)
                     if torch.mean(getattr(net.module, attr).weight).item() > 1.0 \
                         and torch.mean(getattr(net.module, attr).weight).item() < 3.0 \
-                            and torch.count_nonzero(torch.relu(getattr(net.module, attr).weight-1e-5)).float().item() > 0.8*(num_prototypes*len(classes)): 
+                            and torch.count_nonzero(torch.relu(getattr(net.module, attr).weight-1e-5)).float().item() > 0.8*(getattr(net.module, attr).weight.shape[0] * getattr(net.module, attr).weight.shape[1]): 
                         print("We assume that the classification layer is not yet trained. We re-initialize it...", flush=True)
                         torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
                         torch.nn.init.constant_(net.module._multiplier, val=2.)
@@ -149,14 +149,15 @@ def run_pipnet(args=None):
         else:
             net.module._add_on.apply(init_weights_xavier)
             for attr in dir(net.module):
-                if attr.endwsith('_classification'):
+                if attr.endswith('_classification'):
                     torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
                     if args.bias:
                         torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
+                    print("Classification layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
 
-            print("Classification layer initialized with mean", torch.mean(net.module._classification.weight).item(), flush=True)
+            
     
     # Define classification loss function and scheduler
     criterion = nn.NLLLoss(reduction='mean').to(device)
@@ -167,9 +168,9 @@ def run_pipnet(args=None):
         xs1, _, _ = next(iter(trainloader))
         xs1 = xs1.to(device)
         proto_features, _, _ = net(xs1)
-        wshape = proto_features.shape[-1]
+        wshape = proto_features['root'].shape[-1]
         args.wshape = wshape #needed for calculating image patch size
-        print("Output shape: ", proto_features.shape, flush=True)
+        print("Output shape: ", proto_features['root'].shape, flush=True)
     
     if net.module._num_classes == 2:
         # Create a csv log for storing the test accuracy, F1-score, mean train accuracy and mean loss for each epoch
@@ -187,9 +188,10 @@ def run_pipnet(args=None):
             param.requires_grad = True
         for param in net.module._add_on.parameters():
             param.requires_grad = True
-        for val in net.module._classification.values():
-            param = val.parameters()
-            param.requires_grad = False
+        for attr in dir(net.module):
+            if attr.endswith('_classification'):
+                for param in getattr(net.module, attr).parameters():
+                    param.requires_grad = False
         for param in params_to_freeze:
             param.requires_grad = True # can be set to False when you want to freeze more layers
         for param in params_backbone:
@@ -225,8 +227,10 @@ def run_pipnet(args=None):
         scheduler_classifier = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer_classifier, T_0=10, eta_min=0.001, T_mult=1, verbose=False)
     for param in net.module.parameters():
         param.requires_grad = False
-    for param in net.module._classification.parameters():
-        param.requires_grad = True
+    for attr in dir(net.module):
+            if attr.endswith('_classification'):
+                for param in getattr(net.module, attr).parameters():
+                    param.requires_grad = True
     
     frozen = True
     lrs_net = []
@@ -245,7 +249,7 @@ def run_pipnet(args=None):
                 param.requires_grad = False
             finetune = True
         
-        else: 
+        else:
             finetune=False          
             if frozen:
                 # unfreeze backbone
@@ -275,10 +279,13 @@ def run_pipnet(args=None):
             # SET SMALL WEIGHTS TO ZERO
             with torch.no_grad():
                 torch.set_printoptions(profile="full")
-                net.module._classification.weight.copy_(torch.clamp(net.module._classification.weight.data - 0.001, min=0.)) 
-                print("Classifier weights: ", net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)], (net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)]).shape, flush=True)
-                if args.bias:
-                    print("Classifier bias: ", net.module._classification.bias, flush=True)
+                for attr in dir(net.module):
+                    if attr.endswith('_classification'):
+                        getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
+                        print("Classifier weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
+                              (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
+                        if args.bias:
+                            print("Classifier bias: ", getattr(net.module, attr).bias, flush=True)
                 torch.set_printoptions(profile="default")
 
         train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, args.epochs, device, pretrain=False, finetune=finetune)
@@ -307,36 +314,54 @@ def run_pipnet(args=None):
     net.eval()
     torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_last'))
 
-    topks = visualize_topk(net, projectloader, len(classes), device, 'visualised_prototypes_topk', args)
-    # set weights of prototypes that are never really found in projection set to 0
-    set_to_zero = []
-    if topks:
-        for prot in topks.keys():
-            found = False
-            for (i_id, score) in topks[prot]:
-                if score > 0.1:
-                    found = True
-            if not found:
-                torch.nn.init.zeros_(net.module._classification.weight[:,prot])
-                set_to_zero.append(prot)
-        print("Weights of prototypes", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
+    for node in root.nodes_with_children():
+        topks = visualize_topk(net, projectloader, len(classes), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
+        # set weights of prototypes that are never really found in projection set to 0
+        set_to_zero = []
+        classification_layer = getattr(net.module, '_'+node.name+'_classification')
+        if topks:
+            for prot in topks.keys():
+                found = False
+                for (i_id, score) in topks[prot]:
+                    if score > 0.1:
+                        found = True
+                if not found:
+                    torch.nn.init.zeros_(classification_layer.weight[:,prot])
+                    set_to_zero.append(prot)
+            print(f"Weights of prototypes of node {node.name}", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
 
         # Not doing this for now requires modification in test.py
         # eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
         # log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
 
-    print("classifier weights: ", net.module._classification.weight, flush=True)
-    print("Classifier weights nonzero: ", net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)], (net.module._classification.weight[net.module._classification.weight.nonzero(as_tuple=True)]).shape, flush=True)
-    print("Classifier bias: ", net.module._classification.bias, flush=True)
+        print(f"classifier weights {node.name}: ", classification_layer.weight, flush=True)
+        print(f"Classifier weights nonzero {node.name}: ", classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)], (classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)]).shape, flush=True)
+        print(f"Classifier bias {node.name}: ", classification_layer.bias, flush=True)
+
     # Print weights and relevant prototypes per class
-    for c in range(net.module._classification.weight.shape[0]):
-        relevant_ps = []
-        proto_weights = net.module._classification.weight[c,:]
-        for p in range(net.module._classification.weight.shape[1]):
-            if proto_weights[p]> 1e-3:
-                relevant_ps.append((p, proto_weights[p].item()))
-        if args.validation_size == 0.:
-            print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
+    for node in root.nodes_with_children():
+        classification_layer = getattr(net.module, '_'+node.name+'_classification')
+        coarse_label_to_name = {label:name for name, label in node.children_to_labels.items()}
+        print("Class -> Prototypes")
+        for c in range(classification_layer.weight.shape[0]):
+            relevant_ps = []
+            proto_weights = classification_layer.weight[c,:]
+            for p in range(classification_layer.weight.shape[1]):
+                if proto_weights[p]> 1e-3:
+                    relevant_ps.append((p, proto_weights[p].item()))
+            if args.validation_size == 0.:
+                print("Class", c, "(", coarse_label_to_name[c], "):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
+                # print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
+
+        print("Prototypes -> Class")
+        for p in range(classification_layer.weight.shape[1]):
+            relevant_classes = []
+            proto_weights = classification_layer.weight[:,p]
+            for c in range(classification_layer.weight.shape[0]):
+                if proto_weights[c]> 1e-3:
+                    relevant_classes.append((c, proto_weights[c].item()))
+            if relevant_classes:
+                print("Prototype", p, " present in", len(relevant_classes), "classes: ", [coarse_label_to_name[rc[0]] for rc in relevant_classes], flush=True)
 
     # Evaluate prototype purity        
     if args.dataset == 'CUB-200-2011':
@@ -362,14 +387,14 @@ def run_pipnet(args=None):
         csvfile_all = get_proto_patches_cub(net, test_projectloader, 'test_'+str(epoch), device, args, threshold=cubthreshold)
         eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'test_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
         
-    # visualize predictions 
-    visualize(net, projectloader, len(classes), device, 'visualised_prototypes', args)
-    testset_img0_path = test_projectloader.dataset.samples[0][0]
-    test_path = os.path.split(os.path.split(testset_img0_path)[0])[0]
-    vis_pred(net, test_path, classes, device, args) 
-    if args.extra_test_image_folder != '':
-        if os.path.exists(args.extra_test_image_folder):   
-            vis_pred_experiments(net, args.extra_test_image_folder, classes, device, args)
+    # visualize predictions - not doing this for now
+    # visualize(net, projectloader, len(classes), device, 'visualised_prototypes', args)
+    # testset_img0_path = test_projectloader.dataset.samples[0][0]
+    # test_path = os.path.split(os.path.split(testset_img0_path)[0])[0]
+    # vis_pred(net, test_path, classes, device, args) 
+    # if args.extra_test_image_folder != '':
+    #     if os.path.exists(args.extra_test_image_folder):   
+    #         vis_pred_experiments(net, args.extra_test_image_folder, classes, device, args)
 
 
     # EVALUATE OOD DETECTION - not doing this for now

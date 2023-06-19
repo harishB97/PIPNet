@@ -4,13 +4,15 @@ import torch.nn.functional as F
 import torch.optim
 import torch.utils.data
 import math
+import numpy as np
 
 from collections import defaultdict
 
 def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch'):
 
     root = net.module.root
-    label2name = train_loader.dataset.label_to_name
+    name2label = train_loader.dataset.dataset.dataset.class_to_idx
+    label2name = {label:name for name, label in name2label.items()}
     node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
 
     # Make sure the model is in train mode
@@ -19,14 +21,14 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     if pretrain:
         # Disable training of classification layer
         # net.module._classification.requires_grad = False
-        for attr in net.module:
+        for attr in dir(net.module):
             if attr.endswith('_classification'):
                 getattr(net.module, attr).requires_grad = False
         progress_prefix = 'Pretrain Epoch'
     else:
         # Enable training of classification layer (disabled in case of pretraining)
         # net.module._classification.requires_grad = True
-        for attr in net.module:
+        for attr in dir(net.module):
             if attr.endswith('_classification'):
                 getattr(net.module, attr).requires_grad = True
     
@@ -191,9 +193,17 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.descendents]
         node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).cuda()
 
+        if len(node_y) == 0:
+            continue
+
         ys = torch.cat([node_y,node_y])
         pooled1, pooled2 = pooled[node.name].chunk(2)
+        pooled1 = pooled1[children_idx]
+        pooled2 = pooled2[children_idx]
         pf1, pf2 = proto_features[node.name].chunk(2)
+        pf1 = pf1[children_idx]
+        pf2 = pf2[children_idx]
+        out[node.name] = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
 
         embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
         embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
@@ -207,7 +217,7 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         
         if not pretrain:
             softmax_inputs = torch.log1p(out[node.name]**net_normalization_multiplier)
-            class_loss = criterion(F.log_softmax((softmax_inputs),dim=1),ys)
+            class_loss = criterion(F.log_softmax((softmax_inputs),dim=1),ys) * (len(node_y) / len(batch_names))
             
             if finetune:
                 loss += cl_weight * class_loss
@@ -219,12 +229,12 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         #     loss += unif_weight * uni_loss
 
         # For debugging purpose
-        node_accuracy[node.name]['n_examples'] += children_idx.sum().item()
+        node_accuracy[node.name]['n_examples'] += ys.shape[0]
         _, node_coarsest_predicted = torch.max(out[node.name].data, 1)
-        node_accuracy[node.name]['n_correct'] += (node_y == node_coarsest_predicted).sum().item()
+        node_accuracy[node.name]['n_correct'] += (ys == node_coarsest_predicted).sum().item()
         for child in node.children:
-            node_accuracy[node.name]['children'][child.name]['n_examples'] += (node_y == node.children_to_labels[child.name]).sum().item()
-            node_accuracy[node.name]['children'][child.name]['n_correct'] += (node_coarsest_predicted[node_y == node.children_to_labels[child.name]] == node.children_to_labels[child.name]).sum().item()
+            node_accuracy[node.name]['children'][child.name]['n_examples'] += (ys == node.children_to_labels[child.name]).sum().item()
+            node_accuracy[node.name]['children'][child.name]['n_correct'] += (node_coarsest_predicted[ys == node.children_to_labels[child.name]] == node.children_to_labels[child.name]).sum().item()
 
     acc=0.
     # if not pretrain:
@@ -233,16 +243,18 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            avg_a_loss_pf = np.mean([node_a_loss_pf.item() for node_name, node_a_loss_pf in a_loss_pf.items()])
+            avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}',refresh=False)
+                f'L: {loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}',refresh=False)
             else:
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}, Ac:{acc:.3f}',refresh=False)
+                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, Ac:{acc:.3f}',refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}, Ac:{acc:.3f}',refresh=False)            
+                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, Ac:{acc:.3f}',refresh=False)            
     return loss, acc
 
 

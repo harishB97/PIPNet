@@ -44,7 +44,7 @@ class PIPNet(nn.Module):
         pooled = {}
         out = {}
         for i, node in enumerate(self.root.nodes_with_children()):
-            proto_features_i = proto_features_all_nodes[i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
+            proto_features_i = proto_features_all_nodes[:, i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
             proto_features_i = self._softmax(proto_features_i)
             pooled_i = self._pool(proto_features_i)
             if inference:
@@ -55,6 +55,9 @@ class PIPNet(nn.Module):
             out[node.name] = out_i
 
         return proto_features, pooled, out
+    
+    def get_classification_layers(self):
+        return [getattr(self, attr) for attr in dir(self) if attr.endswith('_classification')] 
 
 
 base_architecture_to_features = {'resnet18': resnet18_features,

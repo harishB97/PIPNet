@@ -10,12 +10,14 @@ import torchvision
 from util.func import get_patch_size
 import random
 from util.data import ModifiedLabelLoader
+import numpy as np
 
 @torch.no_grad()                    
 def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10, node=None):
-    print("Visualizing prototypes for topk...", flush=True)
+    print(f"Visualizing prototypes for topk of node {node.name} ...", flush=True)
 
-    label2name = projectloader.dataset.label_to_name
+    name2label = projectloader.dataset.class_to_idx
+    label2name = {label:name for name, label in name2label.items()}
     modifiedLabelLoader = ModifiedLabelLoader(projectloader, node)
     projectloader = modifiedLabelLoader
     coarse_label2name = modifiedLabelLoader.modifiedlabel2name
@@ -143,10 +145,10 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                                 img_tensor_patch = img_tensor[0, :, h_coor_min:h_coor_max, w_coor_min:w_coor_max]
                                         
                                 saved[p]+=1
-                                tensors_per_prototype[p].append({'img_tensor': img_tensor, 'img_tensor_patch': img_tensor_patch, \
+                                tensors_per_prototype[p].append({'img_tensor': img_tensor[0], 'img_tensor_patch': img_tensor_patch, \
                                                                 'coords': (h_coor_min, h_coor_max, w_coor_min, w_coor_max), \
                                                                 'fine_label': orig_y, 'coarse_label': ys})
-                                # tensors_per_prototype[p].append((img_tensor_patch, orig_y, ys))
+                                # tensors_per_prototype[p].append(img_tensor_patch)
 
     print("Abstained: ", abstained, flush=True)
     all_tensors = []
@@ -187,7 +189,8 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                 grid = torchvision.utils.make_grid(patches, nrow=k+1, padding=1)
                 torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
                 if saved[p]>=k:
-                    all_tensors+=tensors_per_prototype[p]
+                    # all_tensors+=tensors_per_prototype[p]
+                    all_tensors+=patches
             except:
                 pass
 
@@ -196,30 +199,31 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             for x in tensors_per_prototype[p]:
                 # add bounding box
                 h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
-                bb_img_tensor = torchvision.utils.draw_bounding_boxes(x['img_tensor'], boxes=(w_coor_min, h_coor_min, w_coor_max, h_coor_max), colors=(0, 255, 255))
-                bb_img_tensors.append(bb_img_tensor)
+                bb_img_tensor = torchvision.utils.draw_bounding_boxes((x['img_tensor'] * 255).type(torch.uint8), boxes=torch.tensor([[w_coor_min.item(), h_coor_min.item(), w_coor_max.item(), h_coor_max.item()]]), colors=(0, 255, 255))
+                
                 # add coarse and fine label to each of the topk image
                 text = f"Coarse={coarse_label2name[x['coarse_label'].item()]}, Fine={label2name[x['fine_label'].item()][4:7]}" # fine label assumes cub name in the format cub_122_Harris_Sparrow
-                bb_img = F.to_pil_image(bb_img_tensor)
+                bb_img = torchvision.transforms.functional.to_pil_image(bb_img_tensor)
                 padding_top = 40
                 padding = (0, padding_top, 0, 0)  # Padding (left, top, right, bottom)
                 bb_img_padded = Image.new("RGB", (bb_img.width, bb_img.height + padding_top), color=(0, 0, 0))
-                bb_img_padded.paste(bb_img, padding)
+                bb_img_padded.paste(bb_img, (0, padding_top))
                 draw = D.Draw(bb_img_padded)
                 draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
+                bb_img_tensors.append(transforms.ToTensor()(bb_img_padded))
             # add prototype number and coarse labels to know the classes this prototype belongs to
             relevant_proto_classes = torch.nonzero(classification_weights[:, p] > 3)
             text = "P "+str(p) + f" belongs to: {','.join([x.item() for x in relevant_proto_classes])}"
-            txtimage = Image.new("RGB", (bb_img_tensors[0].shape[1],bb_img_tensors[0].shape[2]), (0, 0, 0))
+            txtimage = Image.new("RGB", (bb_img_tensors[0].shape[2],bb_img_tensors[0].shape[1]), (0, 0, 0))
             draw = D.Draw(txtimage)
             draw.text((bb_img_tensors[0].shape[0]//2, bb_img_tensors[0].shape[1]//2), text, anchor='mm', fill="white")
             txttensor = transforms.ToTensor()(txtimage)
             bb_img_tensors.append(txttensor)
-            try:
-                grid = torchvision.utils.make_grid(bb_img_tensors, nrow=k+1, padding=1)
-                torchvision.utils.save_image(grid,os.path.join(dir,"grid_bb_topk_%s.png"%(str(p))))
-            except:
-                pass
+            # try:
+            grid = torchvision.utils.make_grid(bb_img_tensors, nrow=k+1, padding=1)
+            torchvision.utils.save_image(grid,os.path.join(dir,"grid_bb_topk_%s.png"%(str(p))))
+            # except:
+            #     pass
 
 
     if len(all_tensors)>0:

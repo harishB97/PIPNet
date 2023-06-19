@@ -13,13 +13,21 @@ from sklearn.model_selection import train_test_split
 
 import torch
 from torch.utils.data import DataLoader
+from torchvision.datasets.folder import ImageFolder
 
 class ModifiedLabelLoader(DataLoader):
     def __init__(self, dataloader, node, *args, **kwargs):
-        super(ModifiedLabelLoader, self).__init__(*args, **kwargs)
+        # super(ModifiedLabelLoader, self).__init__(*args, **kwargs)
         self.dataloader = dataloader
         self.node = node
-        self.label2name = dataloader.dataset.label_to_name
+        # train loaders use additional wrappers on the dataset for adding augmentation
+        if type(dataloader.dataset) == ImageFolder:
+            name2label = dataloader.dataset.class_to_idx
+            self.dataset = dataloader.dataset
+        else:
+            name2label = dataloader.dataset.dataset.dataset.class_to_idx
+            self.dataset = dataloader.dataset.dataset.dataset
+        self.label2name = {label:name for name, label in name2label.items()}
         self.modifiedlabel2name = {label: name for name, label in node.children_to_labels.items()}
 
     def __iter__(self):
@@ -37,6 +45,9 @@ class ModifiedLabelLoader(DataLoader):
 
             yield batch_images, original_labels, modified_labels
 
+    def __len__(self):
+        return len(self.dataset)
+
 
 def get_data(args: argparse.Namespace): 
     """
@@ -53,12 +64,12 @@ def get_data(args: argparse.Namespace):
                                 '/home/harishbabu/data/CUB_200_2011/dataset/train', 
                                 '/home/harishbabu/data/CUB_200_2011/dataset/test_full')
     if args.dataset =='CUB-190-imgnet':
-        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
+        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
                                 args.image_size, args.seed, args.validation_size, 
-                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset == 'pets':
         return get_pets(True, './data/PETS/dataset/train','./data/PETS/dataset/train','./data/PETS/dataset/test', args.image_size, args.seed, args.validation_size)
     if args.dataset == 'partimagenet': #use --validation_size of 0.2
