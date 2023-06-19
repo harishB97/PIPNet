@@ -81,6 +81,10 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='',
                         help='The directory containing a state dict with a pretrained PIP-Net. E.g., ./runs/run_pipnet/checkpoints/net_pretrained')
+    parser.add_argument("--state_dict_dir_backbone",
+                        type=str,
+                        default='', 
+                        help='The directory containing a state dict with a pretrained PIP-Net. Only the backbone i.e. "_net" will be loaded')
     parser.add_argument('--freeze_epochs',
                         type=int,
                         default = 10,
@@ -121,7 +125,12 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default=None, 
                         help='path to the yaml file containing "phylogeny_path" and "phyloDistances_string"') # "./configs/cub27_phylogeny.yaml"
-
+    parser.add_argument("--experiment_note",
+                        type=str,
+                        default='No note', 
+                        help='Note on the experiment')
+    
+# 
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:
         if not os.path.exists(args.log_dir):

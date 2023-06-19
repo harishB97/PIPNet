@@ -56,6 +56,25 @@ class PIPNet(nn.Module):
 
         return proto_features, pooled, out
     
+    # def forward_backbone(self, xs,  inference=False):
+    #     features = self._net(xs) 
+    #     proto_features_all_nodes = self._add_on(features)
+    #     proto_features = {}
+    #     pooled = {}
+    #     out = {}
+    #     for i, node in enumerate(self.root.nodes_with_children()):
+    #         proto_features_i = proto_features_all_nodes[:, i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
+    #         proto_features_i = self._softmax(proto_features_i)
+    #         pooled_i = self._pool(proto_features_i)
+    #         if inference:
+    #             pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
+    #         out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
+    #         proto_features[node.name] = proto_features_i
+    #         pooled[node.name] = pooled_i
+    #         out[node.name] = out_i
+
+    #     return proto_features, pooled, out
+    
     def get_classification_layers(self):
         return [getattr(self, attr) for attr in dir(self) if attr.endswith('_classification')] 
 

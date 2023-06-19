@@ -185,22 +185,22 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
             txttensor = transforms.ToTensor()(txtimage)
             patches.append(txttensor)
-            try:
-                grid = torchvision.utils.make_grid(patches, nrow=k+1, padding=1)
-                torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
-                if saved[p]>=k:
-                    # all_tensors+=tensors_per_prototype[p]
-                    all_tensors+=patches
-            except:
-                pass
+            grid = torchvision.utils.make_grid(patches, nrow=k+1, padding=1)
+            torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
+            if saved[p]>=k:
+                # all_tensors+=tensors_per_prototype[p]
+                all_tensors+=patches
+
 
             # create a grid of images with bounding box, add text next to each topk-grid, to easily see which prototype it is
             bb_img_tensors = []
             for x in tensors_per_prototype[p]:
                 # add bounding box
-                h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
-                bb_img_tensor = torchvision.utils.draw_bounding_boxes((x['img_tensor'] * 255).type(torch.uint8), boxes=torch.tensor([[w_coor_min.item(), h_coor_min.item(), w_coor_max.item(), h_coor_max.item()]]), colors=(0, 255, 255))
-                
+                try:
+                    h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
+                    bb_img_tensor = torchvision.utils.draw_bounding_boxes((x['img_tensor'] * 255).type(torch.uint8), boxes=torch.tensor([[w_coor_min, h_coor_min, w_coor_max, h_coor_max]]), colors=(0, 255, 255))
+                except:
+                    breakpoint()
                 # add coarse and fine label to each of the topk image
                 text = f"Coarse={coarse_label2name[x['coarse_label'].item()]}, Fine={label2name[x['fine_label'].item()][4:7]}" # fine label assumes cub name in the format cub_122_Harris_Sparrow
                 bb_img = torchvision.transforms.functional.to_pil_image(bb_img_tensor)
@@ -358,6 +358,10 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
 
 # convert latent location to coordinates of image patch
 def get_img_coordinates(img_size, softmaxes_shape, patchsize, skip, h_idx, w_idx):
+
+    w_idx = w_idx.item() if torch.is_tensor(w_idx) else w_idx
+    h_idx = h_idx.item() if torch.is_tensor(h_idx) else h_idx
+    
     # in case latent output size is 26x26. For convnext with smaller strides. 
     if softmaxes_shape[1] == 26 and softmaxes_shape[2] == 26:
         #Since the outer latent patches have a smaller receptive field, skip size is set to 4 for the first and last patch. 8 for rest.

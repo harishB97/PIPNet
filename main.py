@@ -136,24 +136,46 @@ def run_pipnet(args=None):
                     if torch.mean(getattr(net.module, attr).weight).item() > 1.0 \
                         and torch.mean(getattr(net.module, attr).weight).item() < 3.0 \
                             and torch.count_nonzero(torch.relu(getattr(net.module, attr).weight-1e-5)).float().item() > 0.8*(getattr(net.module, attr).weight.shape[0] * getattr(net.module, attr).weight.shape[1]): 
-                        print("We assume that the classification layer is not yet trained. We re-initialize it...", flush=True)
+                        print(f"We assume that the {attr} layer is not yet trained. We re-initialize it...", flush=True)
                         torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
                         torch.nn.init.constant_(net.module._multiplier, val=2.)
-                        print("Classification layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+                        print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
                         if args.bias:
                             torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
                         loading_pretrained_only_model = True
             if loading_pretrained_only_model and 'optimizer_classifier_state_dict' in checkpoint.keys():
                 optimizer_classifier.load_state_dict(checkpoint['optimizer_classifier_state_dict'])
-            
-        else:
+
+        elif args.state_dict_dir_backbone != '':
+            checkpoint = torch.load(args.state_dict_dir_backbone,map_location=device)
+            # load backbone 'module._net' from checkpoint
+            filtered_checkpoint_dict = {key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._net')}
+            net.load_state_dict(filtered_checkpoint_dict,strict=False) 
+            print(f"Backbone loaded from {args.state_dict_dir_backbone}", flush=True)
+            # initialize add on
             net.module._add_on.apply(init_weights_xavier)
+            # initialize classification
             for attr in dir(net.module):
                 if attr.endswith('_classification'):
                     torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
                     if args.bias:
                         torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
-                    print("Classification layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+                    print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+            # initialize multiplier
+            torch.nn.init.constant_(net.module._multiplier, val=2.)
+            net.module._multiplier.requires_grad = False
+
+        else:
+            # initialize add on
+            net.module._add_on.apply(init_weights_xavier)
+            # initialize classification
+            for attr in dir(net.module):
+                if attr.endswith('_classification'):
+                    torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
+                    if args.bias:
+                        torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
+                    print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+            # initialize multiplier
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
 
@@ -214,7 +236,7 @@ def run_pipnet(args=None):
     with torch.no_grad():
         if 'convnext' in args.net and args.epochs_pretrain > 0:
             for node in root.nodes_with_children():
-                topks = visualize_topk(net, projectloader, len(classes), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
+                topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
         
     # SECOND TRAINING PHASE
     # re-initialize optimizers and schedulers for second training phase
@@ -282,10 +304,10 @@ def run_pipnet(args=None):
                 for attr in dir(net.module):
                     if attr.endswith('_classification'):
                         getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
-                        print("Classifier weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
+                        print(f"{attr} weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
                               (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
                         if args.bias:
-                            print("Classifier bias: ", getattr(net.module, attr).bias, flush=True)
+                            print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
                 torch.set_printoptions(profile="default")
 
         train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, args.epochs, device, pretrain=False, finetune=finetune)
@@ -315,7 +337,7 @@ def run_pipnet(args=None):
     torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_last'))
 
     for node in root.nodes_with_children():
-        topks = visualize_topk(net, projectloader, len(classes), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
+        topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
         # set weights of prototypes that are never really found in projection set to 0
         set_to_zero = []
         classification_layer = getattr(net.module, '_'+node.name+'_classification')
@@ -342,7 +364,7 @@ def run_pipnet(args=None):
     for node in root.nodes_with_children():
         classification_layer = getattr(net.module, '_'+node.name+'_classification')
         coarse_label_to_name = {label:name for name, label in node.children_to_labels.items()}
-        print("Class -> Prototypes")
+        print(f"Node: {node.name}, Class -> Prototypes")
         for c in range(classification_layer.weight.shape[0]):
             relevant_ps = []
             proto_weights = classification_layer.weight[c,:]
@@ -353,7 +375,7 @@ def run_pipnet(args=None):
                 print("Class", c, "(", coarse_label_to_name[c], "):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
                 # print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
 
-        print("Prototypes -> Class")
+        print(f"Node: {node.name}, Prototypes -> Class")
         for p in range(classification_layer.weight.shape[1]):
             relevant_classes = []
             proto_weights = classification_layer.weight[:,p]

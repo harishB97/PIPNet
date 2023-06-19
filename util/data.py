@@ -64,12 +64,26 @@ def get_data(args: argparse.Namespace):
                                 '/home/harishbabu/data/CUB_200_2011/dataset/train', 
                                 '/home/harishbabu/data/CUB_200_2011/dataset/test_full')
     if args.dataset =='CUB-190-imgnet':
-        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
+        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
                                 args.image_size, args.seed, args.validation_size, 
-                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+    if args.dataset =='CUB-27-imgnet-224':
+        return get_birds(True, '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
+                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+                                args.image_size, args.seed, args.validation_size, 
+                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+    # if args.dataset =='CUB-190-imgnet':
+    #     return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
+    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
+    #                             args.image_size, args.seed, args.validation_size, 
+    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset == 'pets':
         return get_pets(True, './data/PETS/dataset/train','./data/PETS/dataset/train','./data/PETS/dataset/test', args.image_size, args.seed, args.validation_size)
     if args.dataset == 'partimagenet': #use --validation_size of 0.2
