@@ -22,6 +22,8 @@ from util.node import Node
 
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 
+import wandb
+
 def run_pipnet(args=None):
 
     torch.manual_seed(args.seed)
@@ -37,6 +39,8 @@ def run_pipnet(args=None):
     print("Log dir: ", args.log_dir, flush=True)
     # Log the run arguments
     save_args(args, log.metadata_dir)
+
+    run = wandb.init(project="hpnet", name=os.path.basename(args.log_dir), config=vars(args))
 
     if args.phylo_config:
         phylo_config = OmegaConf.load(args.phylo_config)
