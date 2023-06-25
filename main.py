@@ -19,10 +19,30 @@ from copy import deepcopy
 
 from omegaconf import OmegaConf
 from util.node import Node
-
+import shutil
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 
 import wandb
+
+def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
+	"""
+	Copies all .py files from src_dir to dest_dir while preserving directory structure.
+	"""
+	for root, dirs, files in os.walk(src_dir):
+		for skip_folder in skip_folders:
+			if os.path.commonprefix([root, os.path.join(src_dir, skip_folder)]) == os.path.join(src_dir, skip_folder):
+				skip_this_folder = True
+		if skip_this_folder:
+			continue
+		for file in files:
+			if file.split('.')[-1] in extensions:
+				src_file_path = os.path.join(root, file)
+				dest_file_path = os.path.join(dest_dir, os.path.relpath(src_file_path, src_dir))
+				if os.path.commonprefix([os.path.abspath(src_file_path), os.path.abspath(dest_dir)]) != os.path.abspath(dest_dir):
+					dest_file_dir = os.path.dirname(dest_file_path)
+					if not os.path.exists(dest_file_dir):
+						os.makedirs(dest_file_dir)
+					shutil.copy(src_file_path, dest_file_path)
 
 def run_pipnet(args=None):
 
@@ -39,6 +59,8 @@ def run_pipnet(args=None):
     print("Log dir: ", args.log_dir, flush=True)
     # Log the run arguments
     save_args(args, log.metadata_dir)
+
+    copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folder=['runs', 'wandb', 'SLURM'])
 
     run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
 

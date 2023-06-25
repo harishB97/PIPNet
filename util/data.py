@@ -493,7 +493,7 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             
-            # "Identity": (torch.tensor(0.0), False),
+            "Identity": (torch.tensor(0.0), False),
             "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
             "Color": (torch.linspace(-0.2, 1, num_bins), False), # prev had nearly unnoticeable effect visually, does adjust_saturation
             "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
