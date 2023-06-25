@@ -40,7 +40,7 @@ def run_pipnet(args=None):
     # Log the run arguments
     save_args(args, log.metadata_dir)
 
-    run = wandb.init(project="hpnet", name=os.path.basename(args.log_dir), config=vars(args))
+    run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
 
     if args.phylo_config:
         phylo_config = OmegaConf.load(args.phylo_config)
@@ -66,7 +66,7 @@ def run_pipnet(args=None):
         # flat root
         # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
     root.assign_all_descendents()
-    
+
     gpu_list = args.gpu_ids.split(',')
     device_ids = []
     if args.gpu_ids!='':
@@ -96,11 +96,12 @@ def run_pipnet(args=None):
     
     # Obtain the dataset and dataloaders
     trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device)
-    if len(classes)<=20:
-        if args.validation_size == 0.:
-            print("Classes: ", testloader.dataset.class_to_idx, flush=True)
-        else:
-            print("Classes: ", str(classes), flush=True)
+    if args.validation_size == 0.:
+        print("Classes: ", testloader.dataset.class_to_idx, flush=True)
+    else:
+        print("Classes: ", str(classes), flush=True)
+
+    print("Node count:", len(root.nodes_with_children()))
     
     # Create a convolutional network based on arguments and add 1x1 conv layer
     feature_net, add_on_layers, pool_layer, classification_layers, num_prototypes = get_network(len(classes), args, root)
@@ -457,11 +458,11 @@ if __name__ == '__main__':
     if not os.path.isdir(args.log_dir):
         os.mkdir(args.log_dir)
     
-    # sys.stdout.close()
-    # sys.stderr.close()
-    # sys.stdout = open(print_dir, 'w')
-    # sys.stderr = open(tqdm_dir, 'w')
+    sys.stdout.close()
+    sys.stderr.close()
+    sys.stdout = open(print_dir, 'w')
+    sys.stderr = open(tqdm_dir, 'w')
     run_pipnet(args)
     
-    # sys.stdout.close()
-    # sys.stderr.close()
+    sys.stdout.close()
+    sys.stderr.close()

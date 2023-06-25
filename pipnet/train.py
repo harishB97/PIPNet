@@ -7,13 +7,23 @@ import math
 import numpy as np
 
 from collections import defaultdict
+from torchmetrics.functional import f1_score, recall, precision
 
-def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch'):
+import wandb
+
+def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True):
 
     root = net.module.root
     name2label = train_loader.dataset.dataset.dataset.class_to_idx
     label2name = {label:name for name, label in name2label.items()}
-    node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
+
+    wandb_log_subdir = 'train'
+
+    # node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'preds': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
+    node_accuracy = {}
+    for node in root.nodes_with_children():
+        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).to(device), 'gts': torch.empty(0).to(device)}
+        node_accuracy[node.name]['children'] = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})
 
     # Make sure the model is in train mode
     net.train()
@@ -80,9 +90,9 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Perform a forward pass through the network
         proto_features, pooled, out = net(torch.cat([xs1, xs2]))
         
-        loss, acc = calculate_loss(proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, \
-                                   net.module._multiplier, pretrain, finetune, criterion, \
-                                    train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy)
+        loss, class_loss, a_loss_pf, tanh_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, acc = calculate_loss(proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, \
+                                                                                                                    net.module._multiplier, pretrain, finetune, criterion, \
+                                                                                                                        train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy)
         
         # Compute the gradient
         loss.backward()
@@ -118,19 +128,33 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     train_info['lrs_net'] = lrs_net
     train_info['lrs_class'] = lrs_class
 
+    log_dict = {}
+    if wandb_logging:
+        log_dict[wandb_log_subdir + "/epoch loss"] = train_info['loss']
+        # wandb.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
+        # wandb.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
+        # wandb.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
+
     for node_name in node_accuracy:
         node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
-    
+        node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
+                                                    average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
+        if wandb_logging:
+            log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
+            log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
+    wandb.log(log_dict, step=epoch)
+
     train_info['node_accuracy'] = node_accuracy
 
     for node_name in node_accuracy:
         acc = node_accuracy[node_name]["accuracy"]
+        f1 = node_accuracy[node_name]['f1']
         samples = node_accuracy[node_name]["n_examples"]
-        log_string = f'\tNode name: {node_name}, acc: {acc}, samples: {samples}'
+        log_string = f'\tNode name: {node_name}, acc: {acc}, f1:{f1}, samples: {samples}'
         for child in net.module.root.get_node(node_name).children:
             child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
             child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
-            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}'
+            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(child_n_correct/child_n_examples, 2)}'
         print(log_string)
     
     return train_info
@@ -186,6 +210,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
 def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, unif_weight, cl_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, label2name=None, node_accuracy=None):
     batch_names = [label2name[y.item()] for y in ys1]
     loss = 0
+    class_loss = {}
     a_loss_pf = {}
     tanh_loss = {}
     for node in root.nodes_with_children():
@@ -217,12 +242,12 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         
         if not pretrain:
             softmax_inputs = torch.log1p(out[node.name]**net_normalization_multiplier)
-            class_loss = criterion(F.log_softmax((softmax_inputs),dim=1),ys) * (len(node_y) / len(batch_names))
+            class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1),ys) * (len(node_y) / len(batch_names))
             
             if finetune:
-                loss += cl_weight * class_loss
+                loss += cl_weight * class_loss[node.name]
             else:
-                loss += cl_weight * class_loss
+                loss += cl_weight * class_loss[node.name]
         # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines
         # else:
         #     uni_loss = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
@@ -235,6 +260,8 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         for child in node.children:
             node_accuracy[node.name]['children'][child.name]['n_examples'] += (ys == node.children_to_labels[child.name]).sum().item()
             node_accuracy[node.name]['children'][child.name]['n_correct'] += (node_coarsest_predicted[ys == node.children_to_labels[child.name]] == node.children_to_labels[child.name]).sum().item()
+            node_accuracy[node.name]['preds'] = torch.cat((node_accuracy[node.name]['preds'], out[node.name]))
+            node_accuracy[node.name]['gts'] = torch.cat((node_accuracy[node.name]['gts'], ys))
 
     acc=0.
     # if not pretrain:
@@ -243,19 +270,21 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            avg_class_loss = None
             avg_a_loss_pf = np.mean([node_a_loss_pf.item() for node_name, node_a_loss_pf in a_loss_pf.items()])
             avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
             if pretrain:
                 train_iter.set_postfix_str(
                 f'L: {loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}',refresh=False)
             else:
+                avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, Ac:{acc:.3f}',refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}',refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, Ac:{acc:.3f}',refresh=False)            
-    return loss, acc
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}',refresh=False)            
+    return loss, class_loss, a_loss_pf, tanh_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, acc
 
 
 # Extra uniform loss from https://www.tongzhouwang.info/hypersphere/. Currently not used but you could try adding it if you want. 

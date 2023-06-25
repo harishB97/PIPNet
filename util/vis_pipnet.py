@@ -12,8 +12,11 @@ import random
 from util.data import ModifiedLabelLoader
 import numpy as np
 
+import wandb
+import textwrap
+
 @torch.no_grad()                    
-def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10, node=None):
+def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10, node=None, wandb_logging=True):
     print(f"Visualizing prototypes for topk of node {node.name} ...", flush=True)
 
     name2label = projectloader.dataset.class_to_idx
@@ -152,28 +155,9 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
 
     print("Abstained: ", abstained, flush=True)
     all_tensors = []
+    # if wandb_logging:
+    #     run = wandb.init(dir=f"/Media/{node.name}", reinit=True)
     for p in range(net.module._num_prototypes):
-        # if saved[p]>0:
-        #     # add text next to each topk-grid, to easily see which prototype it is
-        #     text = "P "+str(p)
-        #     txtimage = Image.new("RGB", (img_tensor_patch.shape[1],img_tensor_patch.shape[2]), (0, 0, 0))
-        #     draw = D.Draw(txtimage)
-        #     draw.text((img_tensor_patch.shape[0]//2, img_tensor_patch.shape[1]//2), text, anchor='mm', fill="white")
-        #     txttensor = transforms.ToTensor()(txtimage)
-            
-        #     tensors_per_prototype[p].append(txttensor)
-
-        #     # add image label to each image to know its origin class
-
-        #     # save top-k image patches in grid
-        #     try:
-        #         grid = torchvision.utils.make_grid(tensors_per_prototype[p], nrow=k+1, padding=1)
-        #         torchvision.utils.save_image(grid,os.path.join(dir,"grid_topk_%s.png"%(str(p))))
-        #         if saved[p]>=k:
-        #             all_tensors+=tensors_per_prototype[p]
-        #     except:
-        #         pass
-
         if saved[p]>0:
             # add text next to each topk-grid, to easily see which prototype it is
 
@@ -190,19 +174,22 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             if saved[p]>=k:
                 # all_tensors+=tensors_per_prototype[p]
                 all_tensors+=patches
-
+            # if wandb_logging:
+            #     wandb.log({f"{node.name}_topk_{p}.png": wandb.Image(grid)})
+                
 
             # create a grid of images with bounding box, add text next to each topk-grid, to easily see which prototype it is
             bb_img_tensors = []
             for x in tensors_per_prototype[p]:
                 # add bounding box
-                try:
-                    h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
-                    bb_img_tensor = torchvision.utils.draw_bounding_boxes((x['img_tensor'] * 255).type(torch.uint8), boxes=torch.tensor([[w_coor_min, h_coor_min, w_coor_max, h_coor_max]]), colors=(0, 255, 255))
-                except:
-                    breakpoint()
+                h_coor_min, h_coor_max, w_coor_min, w_coor_max = x['coords']
+                bb_img_tensor = torchvision.utils.draw_bounding_boxes((x['img_tensor'] * 255).type(torch.uint8), boxes=torch.tensor([[w_coor_min, h_coor_min, w_coor_max, h_coor_max]]), colors=(0, 255, 255))
                 # add coarse and fine label to each of the topk image
-                text = f"Coarse={coarse_label2name[x['coarse_label'].item()]}, Fine={label2name[x['fine_label'].item()][4:7]}" # fine label assumes cub name in the format cub_122_Harris_Sparrow
+                if coarse_label2name[x['coarse_label'].item()].startswith('cub'):
+                    coarse_name = coarse_label2name[x['coarse_label'].item()][4:7]
+                else:
+                    coarse_name = coarse_label2name[x['coarse_label'].item()] 
+                text = f"Coarse={coarse_name}, Fine={label2name[x['fine_label'].item()][4:7]}" # fine label assumes cub name in the format cub_122_Harris_Sparrow
                 bb_img = torchvision.transforms.functional.to_pil_image(bb_img_tensor)
                 padding_top = 40
                 padding = (0, padding_top, 0, 0)  # Padding (left, top, right, bottom)
@@ -212,11 +199,20 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                 draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
                 bb_img_tensors.append(transforms.ToTensor()(bb_img_padded))
             # add prototype number and coarse labels to know the classes this prototype belongs to
-            relevant_proto_classes = torch.nonzero(classification_weights[:, p] > 3)
-            text = "P "+str(p) + f" belongs to: {','.join([x.item() for x in relevant_proto_classes])}"
+            relevant_proto_classes = torch.nonzero(classification_weights[:, p] > 1e-3)
+            relevant_proto_class_names = []
+            node_label_to_children = {label: name for name, label in node.children_to_labels.items()}
+            for class_idx in relevant_proto_classes:
+                if node_label_to_children[class_idx.item()].startswith('cub'):
+                    relevant_proto_class_names.append(node_label_to_children[class_idx.item()][4:7])
+                else:
+                    relevant_proto_class_names.append(node_label_to_children[class_idx.item()])
+            text = "P "+str(p) + f" belongs to: {','.join(relevant_proto_class_names)}"
+            textwrap.wrap(text, width = bb_img_tensors[0].shape[1])
             txtimage = Image.new("RGB", (bb_img_tensors[0].shape[2],bb_img_tensors[0].shape[1]), (0, 0, 0))
             draw = D.Draw(txtimage)
-            draw.text((bb_img_tensors[0].shape[0]//2, bb_img_tensors[0].shape[1]//2), text, anchor='mm', fill="white")
+            for lc, line in enumerate(textwrap.wrap(text, width = 30)):
+                draw.text((10, 10 + lc*20), line, anchor='mm', fill="white")
             txttensor = transforms.ToTensor()(txtimage)
             bb_img_tensors.append(txttensor)
             # try:
@@ -224,6 +220,8 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
             torchvision.utils.save_image(grid,os.path.join(dir,"grid_bb_topk_%s.png"%(str(p))))
             # except:
             #     pass
+            if wandb_logging:
+                wandb.log({f"{node.name}_bb_topk_{p}.png": wandb.Image(grid)})
 
 
     if len(all_tensors)>0:

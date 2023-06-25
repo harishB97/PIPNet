@@ -14,6 +14,7 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader
 from torchvision.datasets.folder import ImageFolder
+from collections import Counter
 
 class ModifiedLabelLoader(DataLoader):
     def __init__(self, dataloader, node, *args, **kwargs):
@@ -29,6 +30,11 @@ class ModifiedLabelLoader(DataLoader):
             self.dataset = dataloader.dataset.dataset.dataset
         self.label2name = {label:name for name, label in name2label.items()}
         self.modifiedlabel2name = {label: name for name, label in node.children_to_labels.items()}
+        class_counts = {self.label2name[label]:count for label, count in Counter(self.dataset.targets).items()}
+        self.num_samples = 0
+        for classname, count in class_counts.items():
+            if classname in self.node.children_to_labels.keys():
+                self.num_samples += count
 
     def __iter__(self):
         for batch_images, batch_labels in self.dataloader:
@@ -46,7 +52,7 @@ class ModifiedLabelLoader(DataLoader):
             yield batch_images, original_labels, modified_labels
 
     def __len__(self):
-        return len(self.dataset)
+        return self.num_samples
 
 
 def get_data(args: argparse.Namespace): 
@@ -77,13 +83,13 @@ def get_data(args: argparse.Namespace):
                                 args.image_size, args.seed, args.validation_size, 
                                 '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                 '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
-    # if args.dataset =='CUB-190-imgnet':
-    #     return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
-    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
-    #                             args.image_size, args.seed, args.validation_size, 
-    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-    #                             '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+    if args.dataset =='CUB-190-imgnet-reduced':
+        return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
+                                args.image_size, args.seed, args.validation_size, 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset == 'pets':
         return get_pets(True, './data/PETS/dataset/train','./data/PETS/dataset/train','./data/PETS/dataset/test', args.image_size, args.seed, args.validation_size)
     if args.dataset == 'partimagenet': #use --validation_size of 0.2
@@ -122,7 +128,11 @@ def get_dataloaders(args: argparse.Namespace, device):
 
     pretrain_batchsize = args.batch_size_pretrain 
     
-    
+    if ((len(trainset) % args.batch_size) / args.batch_size) < 0.2:
+        drop_last = True
+        print(f'Dropping {(len(trainset) % args.batch_size)} samples from trainloader')
+    else:
+        drop_last = False
     trainloader = torch.utils.data.DataLoader(trainset,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,
@@ -130,9 +140,15 @@ def get_dataloaders(args: argparse.Namespace, device):
                                             pin_memory=cuda,
                                             num_workers=num_workers,
                                             worker_init_fn=np.random.seed(args.seed),
-                                            drop_last=True
+                                            drop_last = drop_last
+                                            # drop_last=True if ((len(trainset) % args.batch_size) / args.batch_size) < 0.2 else False
                                             )
     if trainset_pretraining is not None:
+        if ((len(trainset_pretraining) % pretrain_batchsize) / pretrain_batchsize) < 0.2:
+            drop_last = True
+            print(f'Dropping {(len(trainset_pretraining) % pretrain_batchsize)} samples from trainloader_pretraining')
+        else:
+            drop_last = False
         trainloader_pretraining = torch.utils.data.DataLoader(trainset_pretraining,
                                             batch_size=pretrain_batchsize,
                                             shuffle=to_shuffle,
@@ -140,10 +156,15 @@ def get_dataloaders(args: argparse.Namespace, device):
                                             pin_memory=cuda,
                                             num_workers=num_workers,
                                             worker_init_fn=np.random.seed(args.seed),
-                                            drop_last=True
+                                            drop_last=drop_last
                                             )
                                         
     else:        
+        if ((len(trainset) % pretrain_batchsize) / pretrain_batchsize) < 0.2:
+            drop_last = True
+            print(f'Dropping {(len(trainset) % pretrain_batchsize)} samples from trainloader_pretraining')
+        else:
+            drop_last = False
         trainloader_pretraining = torch.utils.data.DataLoader(trainset,
                                             batch_size=pretrain_batchsize,
                                             shuffle=to_shuffle,
@@ -151,9 +172,14 @@ def get_dataloaders(args: argparse.Namespace, device):
                                             pin_memory=cuda,
                                             num_workers=num_workers,
                                             worker_init_fn=np.random.seed(args.seed),
-                                            drop_last=True
+                                            drop_last=drop_last
                                             )
-
+        
+    if ((len(trainset_normal) % args.batch_size) / args.batch_size) < 0.2:
+        drop_last = True
+        print(f'Dropping {(len(trainset_normal) % args.batch_size)} samples from trainloader_normal')
+    else:
+        drop_last = False
     trainloader_normal = torch.utils.data.DataLoader(trainset_normal,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,
@@ -161,8 +187,13 @@ def get_dataloaders(args: argparse.Namespace, device):
                                             pin_memory=cuda,
                                             num_workers=num_workers,
                                             worker_init_fn=np.random.seed(args.seed),
-                                            drop_last=True
+                                            drop_last=drop_last
                                             )
+    if ((len(trainset_normal_augment) % args.batch_size) / args.batch_size) < 0.2:
+        drop_last = True
+        print(f'Dropping {(len(trainset_normal_augment) % args.batch_size)} samples from trainloader_normal_augment')
+    else:
+        drop_last = False
     trainloader_normal_augment = torch.utils.data.DataLoader(trainset_normal_augment,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,
@@ -170,7 +201,7 @@ def get_dataloaders(args: argparse.Namespace, device):
                                             pin_memory=cuda,
                                             num_workers=num_workers,
                                             worker_init_fn=np.random.seed(args.seed),
-                                            drop_last=True
+                                            drop_last=drop_last
                                             )
     
     projectloader = torch.utils.data.DataLoader(projectset,
@@ -329,7 +360,8 @@ def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_
         ])
         transform2 = transforms.Compose([
                             TrivialAugmentWideNoShape(),
-                            transforms.RandomCrop(size=(img_size, img_size)), #includes crop
+                            # CHANGED
+                            # transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - 
                             transforms.ToTensor(),
                             normalize
                             ])
@@ -421,7 +453,12 @@ class TwoAugSupervisedDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         image, target = self.dataset[index]
         image = self.transform1(image)
-        return self.transform2(image), self.transform2(image), target
+        # CHANGED - remove below 4 lines
+        mean = (0.485, 0.456, 0.406)
+        std = (0.229, 0.224, 0.225)
+        normalize = transforms.Normalize(mean=mean,std=std)
+        return transforms.Compose([transforms.ToTensor(), normalize])(image), self.transform2(image), target
+        # return self.transform2(image), self.transform2(image), target
 
     def __len__(self):
         return len(self.dataset)
@@ -431,14 +468,14 @@ class TrivialAugmentWideNoColor(transforms.TrivialAugmentWide):
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             "Identity": (torch.tensor(0.0), False),
-            "ShearX": (torch.linspace(0.0, 0.5, num_bins), True), 
-            "ShearY": (torch.linspace(0.0, 0.5, num_bins), True), 
-            "TranslateX": (torch.linspace(0.0, 16.0, num_bins), True), 
-            "TranslateY": (torch.linspace(0.0, 16.0, num_bins), True), 
-            "Rotate": (torch.linspace(0.0, 60.0, num_bins), True), 
+            # "ShearX": (torch.linspace(0.0, 0.5, num_bins), True), 
+            # "ShearY": (torch.linspace(0.0, 0.5, num_bins), True), 
+            # "TranslateX": (torch.linspace(0.0, 16.0, num_bins), True), 
+            # "TranslateY": (torch.linspace(0.0, 16.0, num_bins), True), 
+            # "Rotate": (torch.linspace(0.0, 60.0, num_bins), True), 
         }
 
-class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide):
+class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide): # used in get_cars transform2
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             "Identity": (torch.tensor(0.0), False),
@@ -452,17 +489,17 @@ class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide):
             "Equalize": (torch.tensor(0.0), False),
         }
 
-class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide):
+class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_birds transform2
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             
-            "Identity": (torch.tensor(0.0), False),
-            "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Color": (torch.linspace(0.0, 0.02, num_bins), True), 
-            "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False),
-            "AutoContrast": (torch.tensor(0.0), False),
-            "Equalize": (torch.tensor(0.0), False),
+            # "Identity": (torch.tensor(0.0), False),
+            "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
+            "Color": (torch.linspace(-0.2, 1, num_bins), False), # prev had nearly unnoticeable effect visually, does adjust_saturation
+            "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
+            "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True), # has a nearly unnoticeable effect visually
+            "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False), # drastic unnatural augmentation
+            "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
+            # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
         }
 
