@@ -29,6 +29,7 @@ def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
 	Copies all .py files from src_dir to dest_dir while preserving directory structure.
 	"""
 	for root, dirs, files in os.walk(src_dir):
+		skip_this_folder = False
 		for skip_folder in skip_folders:
 			if os.path.commonprefix([root, os.path.join(src_dir, skip_folder)]) == os.path.join(src_dir, skip_folder):
 				skip_this_folder = True
@@ -60,7 +61,7 @@ def run_pipnet(args=None):
     # Log the run arguments
     save_args(args, log.metadata_dir)
 
-    copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folder=['runs', 'wandb', 'SLURM'])
+    copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
 
     run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
 
@@ -469,6 +470,18 @@ def run_pipnet(args=None):
 
     print("Done!", flush=True)
 
+class Tee(object):
+    def __init__(self, name, mode, outstream):
+        self.file = open(name, mode)
+        self.stdout = outstream
+    def __del__(self):
+        self.file.close()
+    def write(self, data):
+        self.file.write(data)
+        self.stdout.write(data)
+    def flush(self):
+        self.file.flush()
+
 if __name__ == '__main__':
     args = get_args()
     torch.manual_seed(args.seed)
@@ -480,11 +493,14 @@ if __name__ == '__main__':
     if not os.path.isdir(args.log_dir):
         os.mkdir(args.log_dir)
     
-    sys.stdout.close()
-    sys.stderr.close()
-    sys.stdout = open(print_dir, 'w')
-    sys.stderr = open(tqdm_dir, 'w')
+    # sys.stdout.close()
+    # sys.stderr.close()
+    # sys.stdout = open(print_dir, 'a')
+    # sys.stderr = open(tqdm_dir, 'a')
+
+    sys.stdout = Tee(print_dir, 'a', sys.stdout)
+    sys.stderr = Tee(tqdm_dir, 'a', sys.stderr)
     run_pipnet(args)
     
-    sys.stdout.close()
-    sys.stderr.close()
+    # sys.stdout.close()
+    # sys.stderr.close()
