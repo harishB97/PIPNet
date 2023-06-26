@@ -31,6 +31,11 @@ class Node:
 
     def children_names(self):
         return([child.name for child in self.children])
+    
+    def is_leaf(self):
+        if self.num_children() > 0:
+            return False
+        return True
 
     # def assign_children_names(self):
     #     self.children_names = self.children_names()
@@ -183,19 +188,28 @@ class Node:
     def has_logits(self):
         return self.num_children() > 1
 
-    def get_distribution(self):                
-        if self.has_logits():
-            return torch.nn.functional.softmax(self.logits,1)
-        else:
-            batch_size = self.logits.size(0)
-            return torch.ones((batch_size,1))
+    # def get_distribution(self):                
+    #     if self.has_logits():
+    #         return torch.nn.functional.softmax(self.logits,1)
+    #     else:
+    #         batch_size = self.logits.size(0)
+    #         return torch.ones((batch_size,1))
 
         
-    def distribution_over_furthest_descendents(self,batch_size):
-        if not self.has_logits():
-            return torch.ones(batch_size,1).cuda()
+    def distribution_over_furthest_descendents(self,batch_size, out, device='cuda'):
+        if self.is_leaf():
+            return torch.ones(batch_size,1).to(device)
         else:
-            return torch.cat([torch.nn.functional.softmax(self.logits,1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size) for i in range(self.num_children())],1)            
+            return torch.cat([torch.nn.functional.softmax(out[self.name],1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
+                              for i in range(self.num_children())],1)            
+        """
+        torch.nn.functional.softmax(out[self.name],1)[:,0].view(batch_size,1)
+        """
+        # if not self.has_logits():
+        #     return torch.ones(batch_size,1).cuda()
+        # else:
+        #     return torch.cat([torch.nn.functional.softmax(self.logits,1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size) \
+        #                       for i in range(self.num_children())],1)            
 
     def names_of_joint_distribution(self):
         if self.num_children() == 1:
