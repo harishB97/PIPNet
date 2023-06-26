@@ -8,6 +8,7 @@ import numpy as np
 
 from collections import defaultdict
 from torchmetrics.functional import f1_score, recall, precision
+from torchvision.datasets.folder import ImageFolder
 
 import wandb
 
@@ -78,6 +79,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     
     lrs_net = []
     lrs_class = []
+    n_fine_correct = 0
+    n_samples = 0
     # Iterate through the data set to update leaves, prototypes and network
     for i, (xs1, xs2, ys) in train_iter:       
         
@@ -86,7 +89,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Reset the gradients
         optimizer_classifier.zero_grad(set_to_none=True)
         optimizer_net.zero_grad(set_to_none=True)
-       
+        
         # Perform a forward pass through the network
         proto_features, pooled, out = net(torch.cat([xs1, xs2]))
         
@@ -121,8 +124,20 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                         classification_layer.weight.copy_(torch.clamp(classification_layer.weight.data - 1e-3, min=0.)) #set weights in classification layer < 1e-3 to zero
                         if classification_layer.bias is not None:
                             classification_layer.bias.copy_(torch.clamp(classification_layer.bias.data, min=0.))  
-                # YTIR - adding this because this was done in the original code, but why this is required this parameter is supposed to be constant & non-trainable
+                # YTIR - keeping this because this was done in the original code, but why this is required this parameter is supposed to be constant & non-trainable
                 net.module._multiplier.copy_(torch.clamp(net.module._multiplier.data, min=1.0))
+        
+        # breakpoint()
+
+        _, preds_joint = net.module.get_joint_distribution(out)
+        _, fine_predicted = torch.max(preds_joint.data, 1)
+        target = torch.cat([ys, ys])
+        fine_correct = fine_predicted == target
+        n_fine_correct += fine_correct.sum().item()
+        n_samples += target.size(0)
+
+    train_info['fine_accuracy'] = n_fine_correct/n_samples
+
     train_info['train_accuracy'] = total_acc/float(i+1)
     train_info['loss'] = total_loss/float(i+1)
     train_info['lrs_net'] = lrs_net
@@ -131,6 +146,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     log_dict = {}
     if wandb_logging:
         log_dict[wandb_log_subdir + "/epoch loss"] = train_info['loss']
+        log_dict[wandb_log_subdir + "/fine_accuracy"] = train_info['fine_accuracy']
         # wandb.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
         # wandb.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
         # wandb.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
@@ -139,13 +155,14 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
         node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
                                                     average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
+        node_accuracy[node_name]['f1'] = round(node_accuracy[node_name]['f1'] * 100, 2)
         if wandb_logging:
             log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
             log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
     wandb.log(log_dict, step=epoch)
 
     train_info['node_accuracy'] = node_accuracy
-
+    print('\tFine accuracy:', round(train_info['fine_accuracy']), 2)
     for node_name in node_accuracy:
         acc = node_accuracy[node_name]["accuracy"]
         f1 = node_accuracy[node_name]['f1']
@@ -159,52 +176,110 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     
     return train_info
 
-# def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, unif_weight, cl_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10):
-#     ys = torch.cat([ys1,ys1])
-#     pooled1, pooled2 = pooled.chunk(2)
-#     pf1, pf2 = proto_features.chunk(2)
 
-#     embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
-#     embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
+def test_pipnet(net, test_loader, criterion, epoch, device, progress_prefix: str = 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test'):
+
+    root = net.module.root
+    dataset = test_loader.dataset
+    while type(dataset) != ImageFolder:
+        dataset = dataset.dataset
+    name2label = dataset.class_to_idx
+    label2name = {label:name for name, label in name2label.items()}
+
+    # node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'preds': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
+    node_accuracy = {}
+    for node in root.nodes_with_children():
+        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).to(device), 'gts': torch.empty(0).to(device)}
+        node_accuracy[node.name]['children'] = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})
+
+    # Make sure the model is in eval mode
+    net.eval()
+
+    align_pf_weight = 5. 
+    t_weight = 2.
+    unif_weight = 0.
+    cl_weight = 2.
+
+    pretrain = False
+    finetune = False
     
-#     a_loss_pf = (align_loss(embv1, embv2.detach())+ align_loss(embv2, embv1.detach()))/2.
-#     tanh_loss = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean())/2.
+    # Store info about the procedure
+    test_info = dict()
+    total_loss = 0.
+    total_acc = 0.
 
-#     if not finetune:
-#         loss = align_pf_weight*a_loss_pf
-#         loss += t_weight * tanh_loss
+    iters = len(test_loader)
+    # Show progress on progress bar. 
+    test_iter = tqdm(enumerate(test_loader),
+                    total=len(test_loader),
+                    desc=progress_prefix+'%s'%epoch,
+                    mininterval=2.,
+                    ncols=0)
     
-#     if not pretrain:
-#         softmax_inputs = torch.log1p(out**net_normalization_multiplier)
-#         class_loss = criterion(F.log_softmax((softmax_inputs),dim=1),ys)
-        
-#         if finetune:
-#             loss= cl_weight * class_loss
-#         else:
-#             loss+= cl_weight * class_loss
-#     # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines
-#     # else:
-#     #     uni_loss = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
-#     #     loss += unif_weight * uni_loss
+    n_fine_correct = 0
+    n_samples = 0
+    with torch.no_grad():
+        # Iterate through the data set to update leaves, prototypes and network
+        for i, (*xs, ys) in test_iter:
+            if (type(xs) == list) and len(xs) > 1:
+                xs1, xs2 = xs
+            else:
+                xs1 = xs2 = xs[0]
+            
+            xs1, xs2, ys = xs1.to(device), xs2.to(device), ys.to(device)
+            
+            # Perform a forward pass through the network
+            proto_features, pooled, out = net(torch.cat([xs1, xs2]))
+            
+            loss, class_loss, a_loss_pf, tanh_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, acc = calculate_loss(proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, \
+                                                                                                                        net.module._multiplier, pretrain, finetune, criterion, \
+                                                                                                                            test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy)        
 
-#     acc=0.
-#     if not pretrain:
-#         ys_pred_max = torch.argmax(out, dim=1)
-#         correct = torch.sum(torch.eq(ys_pred_max, ys))
-#         acc = correct.item() / float(len(ys))
-#     if print: 
-#         with torch.no_grad():
-#             if pretrain:
-#                 train_iter.set_postfix_str(
-#                 f'L: {loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}',refresh=False)
-#             else:
-#                 if finetune:
-#                     train_iter.set_postfix_str(
-#                     f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}, Ac:{acc:.3f}',refresh=False)
-#                 else:
-#                     train_iter.set_postfix_str(
-#                     f'L:{loss.item():.3f},LC:{class_loss.item():.3f}, LA:{a_loss_pf.item():.2f}, LT:{tanh_loss.item():.3f}, num_scores>0.1:{torch.count_nonzero(torch.relu(pooled-0.1),dim=1).float().mean().item():.1f}, Ac:{acc:.3f}',refresh=False)            
-#     return loss, acc
+            _, preds_joint = net.module.get_joint_distribution(out)
+            _, fine_predicted = torch.max(preds_joint.data, 1)
+            target = torch.cat([ys, ys])
+            fine_correct = fine_predicted == target
+            n_fine_correct += fine_correct.sum().item()
+            n_samples += target.size(0)
+
+    test_info['fine_accuracy'] = n_fine_correct/n_samples
+
+    test_info['train_accuracy'] = total_acc/float(i+1)
+    test_info['loss'] = total_loss/float(i+1)
+
+    log_dict = {}
+    if wandb_logging:
+        log_dict[wandb_log_subdir + "/epoch loss"] = test_info['loss']
+        log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['fine_accuracy']
+        # wandb.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
+        # wandb.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
+        # wandb.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
+
+    for node_name in node_accuracy:
+        node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
+        node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
+                                                    average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
+        node_accuracy[node_name]['f1'] = round(node_accuracy[node_name]['f1'] * 100, 2)
+        if wandb_logging:
+            log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
+            log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
+    if wandb_logging:
+        wandb.log(log_dict, step=epoch)
+
+    test_info['node_accuracy'] = node_accuracy
+    print('\tFine accuracy:', round(test_info['fine_accuracy']), 2)
+    for node_name in node_accuracy:
+        acc = node_accuracy[node_name]["accuracy"]
+        f1 = node_accuracy[node_name]['f1']
+        samples = node_accuracy[node_name]["n_examples"]
+        log_string = f'\tNode name: {node_name}, acc: {acc}, f1:{f1}, samples: {samples}'
+        for child in net.module.root.get_node(node_name).children:
+            child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
+            child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
+            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(child_n_correct/child_n_examples, 2)}'
+        print(log_string)
+    
+    return test_info
 
 
 def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, unif_weight, cl_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, label2name=None, node_accuracy=None):
@@ -228,7 +303,8 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
         pf1, pf2 = proto_features[node.name].chunk(2)
         pf1 = pf1[children_idx]
         pf2 = pf2[children_idx]
-        out[node.name] = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
+        # out[node.name] = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
+        node_logits = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
 
         embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
         embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
@@ -241,7 +317,7 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
             loss += t_weight * tanh_loss[node.name]
         
         if not pretrain:
-            softmax_inputs = torch.log1p(out[node.name]**net_normalization_multiplier)
+            softmax_inputs = torch.log1p(node_logits**net_normalization_multiplier)
             class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1),ys) * (len(node_y) / len(batch_names))
             
             if finetune:
@@ -255,12 +331,12 @@ def calculate_loss(proto_features, pooled, out, ys1, align_pf_weight, t_weight, 
 
         # For debugging purpose
         node_accuracy[node.name]['n_examples'] += ys.shape[0]
-        _, node_coarsest_predicted = torch.max(out[node.name].data, 1)
+        _, node_coarsest_predicted = torch.max(node_logits.data, 1)
         node_accuracy[node.name]['n_correct'] += (ys == node_coarsest_predicted).sum().item()
         for child in node.children:
             node_accuracy[node.name]['children'][child.name]['n_examples'] += (ys == node.children_to_labels[child.name]).sum().item()
             node_accuracy[node.name]['children'][child.name]['n_correct'] += (node_coarsest_predicted[ys == node.children_to_labels[child.name]] == node.children_to_labels[child.name]).sum().item()
-            node_accuracy[node.name]['preds'] = torch.cat((node_accuracy[node.name]['preds'], out[node.name]))
+            node_accuracy[node.name]['preds'] = torch.cat((node_accuracy[node.name]['preds'], node_logits))
             node_accuracy[node.name]['gts'] = torch.cat((node_accuracy[node.name]['gts'], ys))
 
     acc=0.
