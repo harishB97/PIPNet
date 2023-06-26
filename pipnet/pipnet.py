@@ -7,6 +7,7 @@ from features.convnext_features import convnext_tiny_26_features, convnext_tiny_
 import torch
 from torch import Tensor
 from util.node import Node
+import numpy as np
 
 class PIPNet(nn.Module):
     def __init__(self,
@@ -52,9 +53,24 @@ class PIPNet(nn.Module):
             out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
             proto_features[node.name] = proto_features_i
             pooled[node.name] = pooled_i
-            out[node.name] = out_i
+            out[node.name] = out_i # these are logits
 
         return proto_features, pooled, out
+    
+    def get_joint_distribution(self, out, device='cuda'):
+        
+        batch_size = out['root'].size(0)
+
+        #top_level = torch.nn.functional.softmax(self.root.logits,1)            
+        top_level = out['root']
+        bottom_level = self.root.distribution_over_furthest_descendents(batch_size, out)    
+
+        names = self.root.unwrap_names_of_joint(self.root.names_of_joint_distribution())
+        idx = np.argsort(names)
+
+        bottom_level = bottom_level[:,idx]        
+        
+        return top_level, bottom_level
     
     # def forward_backbone(self, xs,  inference=False):
     #     features = self._net(xs) 
