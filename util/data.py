@@ -77,12 +77,20 @@ def get_data(args: argparse.Namespace):
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset =='CUB-27-imgnet-224':
-        return get_birds(True, '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
-                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
-                                args.image_size, args.seed, args.validation_size, 
-                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+        try:
+            return get_birds(True, '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
+                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+        except:
+            return get_birds(True, '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
+                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
     if args.dataset =='CUB-190-imgnet-reduced':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
@@ -360,8 +368,7 @@ def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_
         ])
         transform2 = transforms.Compose([
                             TrivialAugmentWideNoShape(),
-                            # CHANGED
-                            # transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - 
+                            transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
                             transforms.ToTensor(),
                             normalize
                             ])
@@ -453,12 +460,7 @@ class TwoAugSupervisedDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         image, target = self.dataset[index]
         image = self.transform1(image)
-        # CHANGED - remove below 4 lines
-        mean = (0.485, 0.456, 0.406)
-        std = (0.229, 0.224, 0.225)
-        normalize = transforms.Normalize(mean=mean,std=std)
-        return transforms.Compose([transforms.ToTensor(), normalize])(image), self.transform2(image), target
-        # return self.transform2(image), self.transform2(image), target
+        return self.transform2(image), self.transform2(image), target
 
     def __len__(self):
         return len(self.dataset)
@@ -468,11 +470,11 @@ class TrivialAugmentWideNoColor(transforms.TrivialAugmentWide):
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             "Identity": (torch.tensor(0.0), False),
-            # "ShearX": (torch.linspace(0.0, 0.5, num_bins), True), 
-            # "ShearY": (torch.linspace(0.0, 0.5, num_bins), True), 
-            # "TranslateX": (torch.linspace(0.0, 16.0, num_bins), True), 
-            # "TranslateY": (torch.linspace(0.0, 16.0, num_bins), True), 
-            # "Rotate": (torch.linspace(0.0, 60.0, num_bins), True), 
+            "ShearX": (torch.linspace(0.0, 0.5, num_bins), True), 
+            "ShearY": (torch.linspace(0.0, 0.5, num_bins), True), 
+            "TranslateX": (torch.linspace(0.0, 16.0, num_bins), True), 
+            "TranslateY": (torch.linspace(0.0, 16.0, num_bins), True), 
+            "Rotate": (torch.linspace(0.0, 60.0, num_bins), True), 
         }
 
 class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide): # used in get_cars transform2
@@ -495,11 +497,10 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
             
             "Identity": (torch.tensor(0.0), False),
             "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
-            "Color": (torch.linspace(-0.2, 1, num_bins), False), # prev had nearly unnoticeable effect visually, does adjust_saturation
+            "Color": (torch.linspace(-0.2, 1, num_bins), False), # prev (torch.linspace(0.0, 0.02, num_bins), True) had nearly unnoticeable effect visually, does adjust_saturation
             "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
             "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True), # has a nearly unnoticeable effect visually
-            "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False), # drastic unnatural augmentation
+            "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False), # prev (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False) had drastic unnatural augmentation
             "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
             # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
         }
-
