@@ -4,7 +4,7 @@ import torch.nn as nn
 from util.args import get_args, save_args, get_optimizer_nn
 from util.data import get_dataloaders
 from util.func import init_weights_xavier
-from pipnet.train import train_pipnet
+from pipnet.train import train_pipnet, test_pipnet
 # from pipnet.test import eval_pipnet, get_thresholds, eval_ood
 from util.eval_cub_csv import eval_prototypes_cub_parts_csv, get_topk_cub, get_proto_patches_cub
 import torch
@@ -118,7 +118,13 @@ def run_pipnet(args=None):
     print("Device used: ", device, "with id", device_ids, flush=True)
     
     # Obtain the dataset and dataloaders
-    trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device)
+    trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
+    if args.OOD_dataset:
+        trainloader_OOD, trainloader_pretraining_OOD, trainloader_normal_OOD, trainloader_normal_augment_OOD, projectloader_OOD, testloader_OOD, test_projectloader_OOD, _ = get_dataloaders(args, device, OOD=True)
+        print('-'*25 + 'Using OOD data' + '-'*25)
+    else:
+        trainloader_OOD = trainloader_pretraining_OOD = trainloader_normal_OOD = trainloader_normal_augment_OOD = projectloader_OOD = testloader_OOD = test_projectloader_OOD = None
+        print('-'*25 + 'Not using OOD data' + '-'*25)
     if args.validation_size == 0.:
         print("Classes: ", testloader.dataset.class_to_idx, flush=True)
     else:
@@ -232,7 +238,7 @@ def run_pipnet(args=None):
     
     
     lrs_pretrain_net = []
-    # PRETRAINING PROTOTYPES PHASE
+    # ------------------------- PRETRAINING PROTOTYPES PHASE -------------------------
     for epoch in range(1, args.epochs_pretrain+1):
         for param in params_to_train:
             param.requires_grad = True
@@ -251,6 +257,7 @@ def run_pipnet(args=None):
         
         # Pretrain prototypes
         train_info = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
+        # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
         plt.clf()
         plt.plot(lrs_pretrain_net)
@@ -266,7 +273,7 @@ def run_pipnet(args=None):
             for node in root.nodes_with_children():
                 topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
         
-    # SECOND TRAINING PHASE
+    # ------------------------- SECOND TRAINING PHASE -------------------------
     # re-initialize optimizers and schedulers for second training phase
     optimizer_net, optimizer_classifier, params_to_freeze, params_to_train, params_backbone = get_optimizer_nn(net, args)            
     scheduler_net = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_net, T_max=len(trainloader)*args.epochs, eta_min=args.lr_net/100.)
@@ -338,13 +345,19 @@ def run_pipnet(args=None):
                             print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
                 torch.set_printoptions(profile="default")
 
-        train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, args.epochs, device, pretrain=False, finetune=finetune)
+        train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
+                                  scheduler_net, scheduler_classifier, criterion, epoch, \
+                                    args.epochs, device, pretrain=False, finetune=finetune, train_loader_OOD=trainloader_OOD)
+        test_info = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
+                                  scheduler_net, scheduler_classifier, criterion, epoch, \
+                                    args.epochs, device, pretrain=False, finetune=finetune, test_loader_OOD=testloader_OOD)
+        # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
         lrs_net+=train_info['lrs_net']
         lrs_classifier+=train_info['lrs_class']
         # Evaluate model - not doing this for now requires modification in test.py
         # eval_info = eval_pipnet(net, testloader, epoch, device, log)
         # log.log_values('log_epoch_overview', epoch, eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], train_info['train_accuracy'], train_info['loss'])
-            
+        
         with torch.no_grad():
             net.eval()
             torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained'))

@@ -17,6 +17,10 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='CUB-200-2011',
                         help='Data set on PIP-Net should be trained')
+    parser.add_argument('--OOD_dataset',
+                        type=str,
+                        default=None,
+                        help='Data set on PIP-Net should be trained')
     parser.add_argument('--validation_size',
                         type=float,
                         default=0.,

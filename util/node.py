@@ -2,6 +2,7 @@ import numpy as np
 import torch 
 import graphviz
 import os
+import torch.nn.functional as F
 
 class Node:
 
@@ -200,8 +201,10 @@ class Node:
         if self.is_leaf():
             return torch.ones(batch_size,1).to(device)
         else:
-            return torch.cat([torch.nn.functional.softmax(out[self.name],1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
-                              for i in range(self.num_children())],1)            
+            # return torch.cat([torch.nn.functional.softmax(out[self.name],1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
+            #                   for i in range(self.num_children())],1)
+            return torch.cat([F.softmax(torch.log1p(out[self.name]**2),1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
+                                for i in range(self.num_children())],1)            
         """
         torch.nn.functional.softmax(out[self.name],1)[:,0].view(batch_size,1)
         """

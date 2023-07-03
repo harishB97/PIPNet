@@ -16,6 +16,8 @@ from torch.utils.data import DataLoader
 from torchvision.datasets.folder import ImageFolder
 from collections import Counter
 
+import os
+
 class ModifiedLabelLoader(DataLoader):
     def __init__(self, dataloader, node, *args, **kwargs):
         # super(ModifiedLabelLoader, self).__init__(*args, **kwargs)
@@ -78,6 +80,7 @@ def get_data(args: argparse.Namespace):
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
     if args.dataset =='CUB-27-imgnet-224':
         try:
+            
             return get_birds(True, '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
                                     '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                     '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
@@ -91,6 +94,23 @@ def get_data(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+    if args.dataset =='CUB-27-224':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_27_224/dataset/'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+        except:
+            base_path = '/home/harishbabu/data/CUB_27_224/dataset/'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection
     if args.dataset =='CUB-190-imgnet-reduced':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
@@ -108,12 +128,36 @@ def get_data(args: argparse.Namespace):
         return get_grayscale(True, './data/train', './data/train', './data/test', args.image_size, args.seed, args.validation_size)
     raise Exception(f'Could not load data set, data set "{args.dataset}" not found!')
 
-def get_dataloaders(args: argparse.Namespace, device):
+def get_data_OOD(args: argparse.Namespace):
+    if args.OOD_dataset =='CUB-163-OOD-imgnet-224':
+        try:
+            # get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_size: int, seed:int, validation_size:float, train_dir_pretrain = None, test_dir_projection = None): 
+            base_path = '/fastscratch/harishbabu/data/CUB_163_OOD_pipnet_224/dataset_segmented_imgnet_pipnet/'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_163_OOD_pipnet_224/dataset_segmented_imgnet_pipnet/'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), 
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), 
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'))
+    raise Exception(f'Could not load data set, data set "{args.OOD_dataset}" not found!')
+
+def get_dataloaders(args: argparse.Namespace, device, OOD=False):
     """
     Get data loaders
     """
-    # Obtain the dataset
-    trainset, trainset_pretraining, trainset_normal, trainset_normal_augment, projectset, testset, testset_projection, classes, num_channels, train_indices, targets = get_data(args)
+    if not OOD:
+        # Obtain the dataset
+        trainset, trainset_pretraining, trainset_normal, trainset_normal_augment, projectset, testset, testset_projection, classes, num_channels, train_indices, targets = get_data(args)
+    else:
+        trainset, trainset_pretraining, trainset_normal, trainset_normal_augment, projectset, testset, testset_projection, classes, num_channels, train_indices, targets = get_data_OOD(args)
     
     # Determine if GPU should be used
     cuda = not args.disable_cuda and torch.cuda.is_available()

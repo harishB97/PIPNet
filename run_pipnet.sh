@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --account=mabrownlab
+#SBATCH --account=ml4science
 #SBATCH --partition=dgx_normal_q
 #SBATCH --time=1-00:00:00 
 #SBATCH --gres=gpu:1
@@ -18,7 +18,7 @@ source activate hpnet1
 which python
 
 
-python main.py --log_dir './runs/004-CUB-27-imgnet_cnext26_img=224_nprotos=200' \
+python main.py --log_dir './runs/014-CUB-27-imgnet_OOD_cnext26_img=224_nprotos=20' \
                --dataset CUB-27-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \
@@ -31,21 +31,55 @@ python main.py --log_dir './runs/004-CUB-27-imgnet_cnext26_img=224_nprotos=200' 
                --lr_block 0.0005 \
                --lr_net 0.0005 \
                --weight_decay 0.0 \
-               --num_features 200 \
+               --num_features 20 \
                --image_size 224 \
                --state_dict_dir_net '' \
-               --freeze_epochs 10 \
+               --freeze_epochs 0 \
                --dir_for_saving_images 'Visualization_results' \
                --seed 1 \
                --gpu_ids '' \
                --num_workers 8 \
                --phylo_config ./configs/cub27_phylogeny.yaml \
+               --experiment_note "Set finetune to 0 and Set freeze_epochs to 0. Added OOD loss. 005 had incorrect data.py. Fixed it again. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
+               --OOD_dataset 'CUB-163-OOD-imgnet-224' \
                --state_dict_dir_backbone '/home/harishbabu/projects/PIPNet/runs/CUB-190-imgnet_cnext26_img=224/checkpoints/net_trained_last' \
-               --experiment_note "Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging"
                # --bias False \
                # --disable_cuda False \
                # --disable_pretrained False \
                # --weighted_loss False \
+
+#-------------------DEBUGGING PURPOSE ONLY------------------------#
+
+# python main.py --log_dir './runs/checking6' \
+#                --dataset CUB-27-imgnet-224 \
+#                --validation_size 0.0 \
+#                --net convnext_tiny_26 \
+#                --batch_size 64 \
+#                --batch_size_pretrain 128 \
+#                --epochs 8 \
+#                --epochs_pretrain 1 \
+#                --optimizer 'Adam' \
+#                --lr 0.05 \
+#                --lr_block 0.0005 \
+#                --lr_net 0.0005 \
+#                --weight_decay 0.0 \
+#                --num_features 20 \
+#                --image_size 224 \
+#                --state_dict_dir_net '' \
+#                --freeze_epochs 10 \
+#                --dir_for_saving_images 'Visualization_results' \
+#                --seed 1 \
+#                --gpu_ids '' \
+#                --num_workers 8 \
+#                --phylo_config ./configs/cub27_phylogeny.yaml \
+#                --experiment_note "Added OOD loss. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
+#                --OOD_dataset 'CUB-163-OOD-imgnet-224' \
+#                --state_dict_dir_backbone '/home/harishbabu/projects/PIPNet/runs/CUB-190-imgnet_cnext26_img=224/checkpoints/net_trained_last' \
+#                # --bias False \
+#                # --disable_cuda False \
+#                # --disable_pretrained False \
+#                # --weighted_loss False \
+
 
 # python main.py --log_dir ./runs/checking --dataset CUB-27-imgnet-224 --validation_size 0.0 --net convnext_tiny_26 --batch_size 64 --batch_size_pretrain 128 --epochs 2 --epochs_pretrain 2 --optimizer 'Adam' --lr 0.05 --lr_block 0.0005 --lr_net 0.0005 --weight_decay 0.0 --num_features 200 --image_size 224 --state_dict_dir_net '' --freeze_epochs 10 --dir_for_saving_images 'Visualization_results' --seed 1 --gpu_ids '' --num_workers 8 --phylo_config ./configs/cub27_phylogeny.yaml --state_dict_dir_backbone '/home/harishbabu/projects/PIPNet/runs/CUB-190-imgnet_cnext26_img=224/checkpoints/net_trained_last'
 
