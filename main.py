@@ -294,7 +294,7 @@ def run_pipnet(args=None):
     lrs_classifier = []
    
     for epoch in range(1, args.epochs + 1):                      
-        epochs_to_finetune = 3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
+        epochs_to_finetune = 0 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             for param in net.module._add_on.parameters():
                 param.requires_grad = False
