@@ -94,6 +94,21 @@ def get_data(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+    if args.dataset =='CUB-08-imgnet-224':
+        try:
+            return get_birds(True, '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+        except:
+            return get_birds(True, '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
+                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
+                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
     if args.dataset =='CUB-27-224':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_27_224/dataset/'
