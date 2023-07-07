@@ -187,7 +187,11 @@ def run_pipnet(args=None):
             net.load_state_dict(filtered_checkpoint_dict,strict=False) 
             print(f"Backbone loaded from {args.state_dict_dir_backbone}", flush=True)
             # initialize add on
-            net.module._add_on.apply(init_weights_xavier)
+            # net.module._add_on.apply(init_weights_xavier)
+            for attr in dir(net.module):
+                if attr.endswith('_add_on'):
+                    getattr(net.module, attr).apply(init_weights_xavier)
+
             # initialize classification
             for attr in dir(net.module):
                 if attr.endswith('_classification'):
@@ -201,7 +205,10 @@ def run_pipnet(args=None):
 
         else:
             # initialize add on
-            net.module._add_on.apply(init_weights_xavier)
+            # net.module._add_on.apply(init_weights_xavier)
+            for attr in dir(net.module):
+                if attr.endswith('_add_on'):
+                    getattr(net.module, attr).apply(init_weights_xavier)
             # initialize classification
             for attr in dir(net.module):
                 if attr.endswith('_classification'):
@@ -242,8 +249,12 @@ def run_pipnet(args=None):
     for epoch in range(1, args.epochs_pretrain+1):
         for param in params_to_train:
             param.requires_grad = True
-        for param in net.module._add_on.parameters():
-            param.requires_grad = True
+        # for param in net.module._add_on.parameters():
+        #     param.requires_grad = True
+        for attr in dir(net.module):
+            if attr.endswith('_add_on'):
+                for param in getattr(net.module, attr).parameters():
+                    param.requires_grad = True
         for attr in dir(net.module):
             if attr.endswith('_classification'):
                 for param in getattr(net.module, attr).parameters():
@@ -296,8 +307,12 @@ def run_pipnet(args=None):
     for epoch in range(1, args.epochs + 1):                      
         epochs_to_finetune = 0 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
-            for param in net.module._add_on.parameters():
-                param.requires_grad = False
+            # for param in net.module._add_on.parameters():
+            #     param.requires_grad = False
+            for attr in dir(net.module):
+                if attr.endswith('_add_on'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = False
             for param in params_to_train:
                 param.requires_grad = False
             for param in params_to_freeze:
@@ -311,8 +326,12 @@ def run_pipnet(args=None):
             if frozen:
                 # unfreeze backbone
                 if epoch>(args.freeze_epochs):
-                    for param in net.module._add_on.parameters():
-                        param.requires_grad = True
+                    # for param in net.module._add_on.parameters():
+                    #     param.requires_grad = True
+                    for attr in dir(net.module):
+                        if attr.endswith('_add_on'):
+                            for param in getattr(net.module, attr).parameters():
+                                param.requires_grad = True
                     for param in params_to_freeze:
                         param.requires_grad = True
                     for param in params_to_train:
@@ -324,8 +343,12 @@ def run_pipnet(args=None):
                 else:
                     for param in params_to_freeze:
                         param.requires_grad = True #Can be set to False if you want to train fewer layers of backbone
-                    for param in net.module._add_on.parameters():
-                        param.requires_grad = True
+                    # for param in net.module._add_on.parameters():
+                    #     param.requires_grad = True
+                    for attr in dir(net.module):
+                        if attr.endswith('_add_on'):
+                            for param in getattr(net.module, attr).parameters():
+                                param.requires_grad = True
                     for param in params_to_train:
                         param.requires_grad = True
                     for param in params_backbone:

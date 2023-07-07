@@ -223,8 +223,11 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
     paramlist_net = [
             {"params": params_backbone, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
             {"params": params_to_freeze, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
-            {"params": params_to_train, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
-            {"params": net.module._add_on.parameters(), "lr": args.lr_block*10., "weight_decay_rate": args.weight_decay}]
+            {"params": params_to_train, "lr": args.lr_block, "weight_decay_rate": args.weight_decay}]
+            # {"params": net.module._add_on.parameters(), "lr": args.lr_block*10., "weight_decay_rate": args.weight_decay}]
+    for attr in dir(net.module):
+        if attr.endswith('_add_on'):
+            paramlist_net.append({"params": getattr(net.module, attr).parameters(), "lr": args.lr_block*10., "weight_decay_rate": args.weight_decay})
             
     paramlist_classifier = [
             {"params": classification_weight, "lr": args.lr, "weight_decay_rate": args.weight_decay},

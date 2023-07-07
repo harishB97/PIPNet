@@ -27,7 +27,9 @@ class PIPNet(nn.Module):
         self._num_classes = num_classes
         self._num_prototypes = num_prototypes
         self._net = feature_net
-        self._add_on = add_on_layers
+        # self._add_on = add_on_layers
+        for node_name in add_on_layers:
+            setattr(self, '_'+node_name+'_add_on', add_on_layers[node_name])
         self._pool = pool_layer
         for node_name in classification_layers:
             setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
@@ -38,22 +40,37 @@ class PIPNet(nn.Module):
         self._num_parent_nodes = num_parent_nodes
         self.root = root
 
+    # def forward(self, xs,  inference=False):
+    #     features = self._net(xs) 
+    #     proto_features_all_nodes = self._add_on(features)
+    #     proto_features = {}
+    #     pooled = {}
+    #     out = {}
+    #     for i, node in enumerate(self.root.nodes_with_children()):
+    #         proto_features_i = proto_features_all_nodes[:, i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
+    #         proto_features_i = self._softmax(proto_features_i)
+    #         pooled_i = self._pool(proto_features_i)
+    #         if inference:
+    #             pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
+    #         out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
+    #         proto_features[node.name] = proto_features_i
+    #         pooled[node.name] = pooled_i
+    #         out[node.name] = out_i # these are logits
+
+    #     return proto_features, pooled, out
+    
     def forward(self, xs,  inference=False):
         features = self._net(xs) 
-        proto_features_all_nodes = self._add_on(features)
         proto_features = {}
         pooled = {}
         out = {}
-        for i, node in enumerate(self.root.nodes_with_children()):
-            proto_features_i = proto_features_all_nodes[:, i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
-            proto_features_i = self._softmax(proto_features_i)
-            pooled_i = self._pool(proto_features_i)
+        for node in self.root.nodes_with_children():
+            proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
+            proto_features[node.name] = self._softmax(proto_features[node.name])
+            pooled[node.name] = self._pool(proto_features[node.name])
             if inference:
-                pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
-            out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
-            proto_features[node.name] = proto_features_i
-            pooled[node.name] = pooled_i
-            out[node.name] = out_i # these are logits
+                pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
+            out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
 
         return proto_features, pooled, out
     
@@ -166,7 +183,11 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     #                                         )
         
     parent_nodes = root.nodes_with_children()
-    add_on_layers = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes * len(parent_nodes), kernel_size=1, stride = 1, padding=0, bias=True)
+    add_on_layers = {}
+    for node in parent_nodes:
+        add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True)
+
+    # add_on_layers = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes * len(parent_nodes), kernel_size=1, stride = 1, padding=0, bias=True)
 
     pool_layer = nn.Sequential(
                 nn.AdaptiveMaxPool2d(output_size=(1,1)), #outputs (bs, ps,1,1)
