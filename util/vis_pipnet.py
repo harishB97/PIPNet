@@ -19,6 +19,9 @@ import textwrap
 def visualize_topk(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, k=10, node=None, wandb_logging=True):
     print(f"Visualizing prototypes for topk of node {node.name} ...", flush=True)
 
+    # if projectloader.shuffle:
+    #     raise('Disable shuffle of projection dataloader')
+
     name2label = projectloader.dataset.class_to_idx
     label2name = {label:name for name, label in name2label.items()}
     modifiedLabelLoader = ModifiedLabelLoader(projectloader, node)
@@ -45,7 +48,8 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     
     patchsize, skip = get_patch_size(args)
 
-    imgs = projectloader.dataset.imgs
+    # imgs = projectloader.dataset.imgs
+    imgs = projectloader.filtered_imgs
     
     # Make sure the model is in evaluation mode
     net.eval()
@@ -235,6 +239,9 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
 def visualize(net, projectloader, num_classes, device, foldername, args: argparse.Namespace, node=None):
     print("Visualizing prototypes...", flush=True)
 
+    # if projectloader.shuffle:
+    #     raise('Disable shuffle of projection dataloader')
+
     modifiedLabelLoader = ModifiedLabelLoader(projectloader, node)
     projectloader = modifiedLabelLoader
 
@@ -260,7 +267,8 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
     
     patchsize, skip = get_patch_size(args)
 
-    imgs = projectloader.dataset.imgs
+    # imgs = projectloader.dataset.imgs
+    imgs = projectloader.filtered_imgs
     
     # skip some images for visualisation to speed up the process
     if len(imgs)/num_classes <10:

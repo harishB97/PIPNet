@@ -22,7 +22,9 @@ class ModifiedLabelLoader(DataLoader):
     def __init__(self, dataloader, node, *args, **kwargs):
         # super(ModifiedLabelLoader, self).__init__(*args, **kwargs)
         self.dataloader = dataloader
+
         self.node = node
+
         # train loaders use additional wrappers on the dataset for adding augmentation
         if type(dataloader.dataset) == ImageFolder:
             name2label = dataloader.dataset.class_to_idx
@@ -30,13 +32,21 @@ class ModifiedLabelLoader(DataLoader):
         else:
             name2label = dataloader.dataset.dataset.dataset.class_to_idx
             self.dataset = dataloader.dataset.dataset.dataset
+
         self.label2name = {label:name for name, label in name2label.items()}
+
         self.modifiedlabel2name = {label: name for name, label in node.children_to_labels.items()}
+
         class_counts = {self.label2name[label]:count for label, count in Counter(self.dataset.targets).items()}
+
         self.num_samples = 0
         for classname, count in class_counts.items():
             if classname in self.node.children_to_labels.keys():
                 self.num_samples += count
+        
+        # the order of images in this and the dataloader must be similar since shuffle=False, but not tested
+        self.filtered_imgs = [(img_path, label) for img_path, label in self.dataset.imgs \
+                                                    if self.label2name[label] in self.node.descendents]
 
     def __iter__(self):
         for batch_images, batch_labels in self.dataloader:
@@ -96,12 +106,12 @@ def get_data(args: argparse.Namespace):
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
     if args.dataset =='CUB-08-imgnet-224':
         try:
-            return get_birds(True, '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
-                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
+            return get_birds(True, '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', # train_dir
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', # project_dir, modified to crop prev full imgs was used
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', # test_dir
                                     args.image_size, args.seed, args.validation_size, 
-                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', # train_dir_pretrain
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop') # test_dir_projection, modified to crop prev full imgs was used
         except:
             return get_birds(True, '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
                                     '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
@@ -554,6 +564,7 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {
             
+            # Modified
             "Identity": (torch.tensor(0.0), False),
             "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
             "Color": (torch.linspace(-0.2, 1, num_bins), False), # prev (torch.linspace(0.0, 0.02, num_bins), True) had nearly unnoticeable effect visually, does adjust_saturation
@@ -562,4 +573,14 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
             "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False), # prev (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False) had drastic unnatural augmentation
             "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
             # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
+
+            # Original - equalize alone commented
+            # "Identity": (torch.tensor(0.0), False),
+            # "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
+            # "Color": (torch.linspace(0, 0.02, num_bins), True), # prev (torch.linspace(0.0, 0.02, num_bins), True) had nearly unnoticeable effect visually, does adjust_saturation
+            # "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),# has a little noticeable effect visually, but pixel values change quite well
+            # "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True), # has a nearly unnoticeable effect visually
+            # "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False), # prev (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False) had drastic unnatural augmentation
+            # "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
+            # # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
         }

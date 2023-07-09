@@ -1,25 +1,25 @@
-# #!/bin/bash
+#!/bin/bash
 
-# #SBATCH --account=ml4science
-# #SBATCH --partition=dgx_normal_q
-# #SBATCH --time=1-00:00:00 
-# #SBATCH --gres=gpu:1
-# #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
-# #SBATCH -o ./SLURM/slurm-%j.out
+#SBATCH --account=ml4science
+#SBATCH --partition=dgx_normal_q
+#SBATCH --time=1-00:00:00 
+#SBATCH --gres=gpu:1
+#SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
+#SBATCH -o ./SLURM/slurm-%j.out
 
 
-# echo start load env and run python
+echo start load env and run python
 
-# module reset
-# module load Anaconda3/2020.11
-# source activate hpnet1
-# module reset
-# source activate hpnet1
-# which python
+module reset
+module load Anaconda3/2020.11
+source activate hpnet1
+module reset
+source activate hpnet1
+which python
 
-# 019-CUB-08-imgnet_cnext26_img=224_nprotos=20
-python main.py --log_dir './runs/checking8' \
-               --dataset CUB-08-imgnet-224 \
+# 020-CUB-08-imgnet_cnext26_img=224_nprotos=20
+python main.py --log_dir './runs/023-CUB-27-imgnet_cnext26_img=224_nprotos=20' \
+               --dataset CUB-27-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \
                --batch_size 64 \
@@ -39,10 +39,10 @@ python main.py --log_dir './runs/checking8' \
                --seed 1 \
                --gpu_ids '' \
                --num_workers 8 \
-               --phylo_config ./configs/cub08_phylogeny.yaml \
-               --experiment_note "Trying with 8 species and smaller phylogeny. Removed scaling -> (len(node_y) / len(ys[ys != OOD_LABEL])). Set finetune to 0 and Set freeze_epochs to 30. Added OOD loss, removed pretrained backbone. 005 had incorrect data.py. Fixed it again. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
+               --phylo_config ./configs/cub27_phylogeny.yaml \
+               --experiment_note "data augmentations set to original. Filtered imgs in vis_pipnet and fixed the previous issue. Separate add_on for each node. Using cropped images for projection. Removed scaling -> (len(node_y) / len(ys[ys != OOD_LABEL])). Set finetune to 0 and Set freeze_epochs to 30. Added OOD loss, removed pretrained backbone. 005 had incorrect data.py. Fixed it again. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
+               # --OOD_dataset 'CUB-163-OOD-imgnet-224' \
                # --state_dict_dir_backbone '/home/harishbabu/projects/PIPNet/runs/CUB-190-imgnet_cnext26_img=224/checkpoints/net_trained_last' \
-            #    --OOD_dataset 'CUB-163-OOD-imgnet-224' \
                # --bias False \
                # --disable_cuda False \
                # --disable_pretrained False \
