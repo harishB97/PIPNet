@@ -267,7 +267,7 @@ def run_pipnet(args=None):
         print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
         
         # Pretrain prototypes
-        train_info = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
+        train_info = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y')
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
         plt.clf()
@@ -305,7 +305,7 @@ def run_pipnet(args=None):
     lrs_classifier = []
    
     for epoch in range(1, args.epochs + 1):                      
-        epochs_to_finetune = 0 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
+        epochs_to_finetune = 3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False
@@ -370,10 +370,10 @@ def run_pipnet(args=None):
 
         train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, train_loader_OOD=trainloader_OOD)
+                                    args.epochs, device, pretrain=False, finetune=finetune, train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y')
         test_info = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, test_loader_OOD=testloader_OOD)
+                                    args.epochs, device, pretrain=False, finetune=finetune, test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y')
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
         lrs_net+=train_info['lrs_net']
         lrs_classifier+=train_info['lrs_class']

@@ -202,6 +202,7 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
                 draw = D.Draw(bb_img_padded)
                 draw.text((patches[0].shape[0]//2, patches[0].shape[1]//2), text, anchor='mm', fill="white")
                 bb_img_tensors.append(transforms.ToTensor()(bb_img_padded))
+
             # add prototype number and coarse labels to know the classes this prototype belongs to
             relevant_proto_classes = torch.nonzero(classification_weights[:, p] > 1e-3)
             relevant_proto_class_names = []

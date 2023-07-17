@@ -133,6 +133,11 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='No note', 
                         help='Note on the experiment')
+    parser.add_argument('--kernel_orth',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to apply kernel orthogonality on the last conv kernels (prototypes).'
+                        )
     
 # 
     args = parser.parse_args()

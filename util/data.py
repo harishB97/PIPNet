@@ -136,6 +136,23 @@ def get_data(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
                                     os.path.join(base_path, 'test_full')) # test_dir_projection
+    if args.dataset =='CUB-18-imgnet-224':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_18_pipnet_224/dataset_segmented_imgnet_pipnet'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_18_pipnet_224/dataset_segmented_imgnet_pipnet'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
     if args.dataset =='CUB-190-imgnet-reduced':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
