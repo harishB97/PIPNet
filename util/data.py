@@ -189,6 +189,24 @@ def get_data_OOD(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), 
                                     os.path.join(base_path, 'test_segmented_imagenet_background_full'))
+    if args.OOD_dataset =='CUB-172-OOD-imgnet-224':
+        try:
+            # get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_size: int, seed:int, validation_size:float, train_dir_pretrain = None, test_dir_projection = None): 
+            base_path = '/fastscratch/harishbabu/data/CUB_172_OOD_pipnet_224/dataset_segmented_imgnet_pipnet/'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_172_OOD_pipnet_224/dataset_segmented_imgnet_pipnet/'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), 
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), 
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), 
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'))
     raise Exception(f'Could not load data set, data set "{args.OOD_dataset}" not found!')
 
 def get_dataloaders(args: argparse.Namespace, device, OOD=False):
