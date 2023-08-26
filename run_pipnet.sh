@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --account=ml4science
-#SBATCH --partition=dgx_normal_q
-#SBATCH --time=1-00:00:00 
+#SBATCH --account=mabrownlab
+#SBATCH --partition=a100_normal_q
+#SBATCH --time=08:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH -o ./SLURM/slurm-%j.out
@@ -17,8 +17,8 @@ module reset
 source activate hpnet1
 which python
 
-# 026-CUB-27-imgnet_OOD_cnext26_img=224_nprotos=20_orth
-python main.py --log_dir './runs/035-CUB-18-imgnet_OOD_cnext26_img=224_nprotos=20_orth-on-rel' \
+# 035-CUB-18-imgnet_OOD_cnext26_img=224_nprotos=20_orth-on-rel
+python main.py --log_dir './runs/036-CUB-18-imgnet_OOD_cnext26_img=224_nprotos=20_orth-on-rel_uniformity' \
                --dataset CUB-18-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \

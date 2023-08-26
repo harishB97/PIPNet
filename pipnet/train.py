@@ -57,7 +57,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     a_loss_pf_ep_mean = 0.
     tanh_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
-    kernel_orth_loss_mean = 0.
+    kernel_orth_loss_ep_mean = 0.
+    uni_loss_ep_mean = 0.
 
     iters = len(train_loader)
     # Show progress on progress bar. 
@@ -121,18 +122,20 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Perform a forward pass through the network
         proto_features, pooled, out = net(xs)
         
-        loss, class_loss_dict, a_loss_pf_dict, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
+        loss, class_loss_dict, a_loss_pf_dict, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss_dict, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, avg_uni_loss, acc = \
             calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
         
         # Compute the gradient
         loss.backward()
 
+        # to be modified, not all avg losses will be none if they're not, some use integer placeholder value, to be modified accordingly
         class_loss_ep_mean += avg_class_loss if avg_class_loss else 0.
         a_loss_pf_ep_mean += avg_a_loss_pf if avg_a_loss_pf else 0.
         tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else 0.
         OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else 0.
-        kernel_orth_loss_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else 0.
+        kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else 0.
+        uni_loss_ep_mean += avg_uni_loss if avg_uni_loss else 0.
 
         if not pretrain:
             optimizer_classifier.step()   
@@ -183,7 +186,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     a_loss_pf_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
     OOD_loss_ep_mean /= float(i+1)
-    kernel_orth_loss_mean /= float(i+1)
+    kernel_orth_loss_ep_mean /= float(i+1)
+    uni_loss_ep_mean /= float(i+1)
 
     log_dict = {}
     if wandb_logging:
@@ -193,7 +197,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
         log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
         log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
-        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_mean
+        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
+        log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
         # wandb.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
         # wandb.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
         # wandb.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
@@ -253,7 +258,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     a_loss_pf_ep_mean = 0.
     tanh_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
-    kernel_orth_loss_mean = 0.
+    kernel_orth_loss_ep_mean = 0.
+    uni_loss_ep_mean = 0.
 
     iters = len(test_loader)
     # Show progress on progress bar. 
@@ -306,7 +312,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             # Perform a forward pass through the network
             proto_features, pooled, out = net(xs)
             
-            loss, class_loss_dict, a_loss_pf_dict, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
+            loss, class_loss_dict, a_loss_pf_dict, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss_dict, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, avg_uni_loss, acc = \
             calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
             
@@ -314,7 +320,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             a_loss_pf_ep_mean += avg_a_loss_pf if avg_a_loss_pf else 0.
             tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else 0.
             OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else 0.
-            kernel_orth_loss_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else 0.
+            kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else 0.
+            uni_loss_ep_mean += avg_uni_loss if avg_uni_loss else 0.
                 
             total_acc+=acc # DUMMY can be removed
             total_loss+=loss.item()
@@ -336,7 +343,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     a_loss_pf_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
     OOD_loss_ep_mean /= float(i+1)
-    kernel_orth_loss_mean /= float(i+1)
+    kernel_orth_loss_ep_mean /= float(i+1)
+    uni_loss_ep_mean /= float(i+1)
 
     log_dict = {}
     if wandb_logging:
@@ -346,7 +354,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
         log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
         log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
-        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_mean
+        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
+        log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
         # wandb.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
         # wandb.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
         # wandb.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
@@ -448,9 +457,9 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
                 OOD_loss[node.name] = F.binary_cross_entropy(sigmoid_out, torch.zeros_like(OOD_logits))
                 loss += OOD_loss_weight * OOD_loss[node.name]
         # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines
-        # else:
-        #     uni_loss[node.name] = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
-        #     loss += unif_weight * uni_loss[node.name]
+        else:
+            uni_loss[node.name] = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
+            loss += unif_weight * uni_loss[node.name]
 
         # For debugging purpose
         node_accuracy[node.name]['n_examples'] += node_y.shape[0]
@@ -471,17 +480,27 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
         with torch.no_grad():
             avg_a_loss_pf = np.mean([node_a_loss_pf.item() for node_name, node_a_loss_pf in a_loss_pf.items()])
             avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
+
+            # optional loss, dict will be empty if not used, so setting the average to a placeholder vale
             if len(kernel_orth_loss) > 0:
                 avg_kernel_orth_loss = np.mean([node_kernel_orth_loss.item() for node_name, node_kernel_orth_loss in kernel_orth_loss.items()])
             else:
-                avg_kernel_orth_loss = -5
+                avg_kernel_orth_loss = -5 # placeholder value
+
+            # optional loss, dict will be empty if not used, so setting the average to a placeholder vale
+            if len(uni_loss) > 0:
+                avg_uni_loss = np.mean([node_uni_loss.item() for node_name, node_uni_loss in uni_loss.items()])
+            else:
+                avg_uni_loss = -5
+            
             avg_class_loss = None
             avg_OOD_loss = None
             if pretrain:
-                if len(uni_loss) > 0:
-                    avg_uni_loss = np.mean([node_uni_loss.item() for node_name, node_uni_loss in uni_loss.items()])
-                else:
-                    avg_uni_loss = -5
+                # # optional loss, dict will be empty if not used, so setting the average to a placeholder vale
+                # if len(uni_loss) > 0:
+                #     avg_uni_loss = np.mean([node_uni_loss.item() for node_name, node_uni_loss in uni_loss.items()])
+                # else:
+                #     avg_uni_loss = -5
                 train_iter.set_postfix_str(
                 f'L: {loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_UNI:{avg_uni_loss:.3f}',refresh=False)
             else:
@@ -493,7 +512,7 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
                 else:
                     train_iter.set_postfix_str(
                     f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}',refresh=False)            
-    return loss, class_loss, a_loss_pf, tanh_loss, OOD_loss, kernel_orth_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc
+    return loss, class_loss, a_loss_pf, tanh_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, avg_uni_loss, acc
 
 
 # Extra uniform loss from https://www.tongzhouwang.info/hypersphere/. Currently not used but you could try adding it if you want. 
