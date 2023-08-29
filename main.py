@@ -24,6 +24,8 @@ from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_t
 
 import wandb
 
+
+
 def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
 	"""
 	Copies all .py files from src_dir to dest_dir while preserving directory structure.
@@ -62,8 +64,11 @@ def run_pipnet(args=None):
     save_args(args, log.metadata_dir)
 
     copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
-
-    run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
+    
+    # os.environ['WANDB_MODE'] = 'offline'
+    # os.environ['WANDB_DIR'] = args.log_dir
+    
+    wandb_run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
 
     if args.phylo_config:
         phylo_config = OmegaConf.load(args.phylo_config)
@@ -267,7 +272,8 @@ def run_pipnet(args=None):
         print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
         
         # Pretrain prototypes
-        train_info = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y')
+        train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', wandb_run=wandb_run, log=log)
+        # wandb_run.log(log_dict, step=epoch)
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
         plt.clf()
@@ -368,12 +374,18 @@ def run_pipnet(args=None):
                             print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
                 torch.set_printoptions(profile="default")
 
-        train_info = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
+        train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y')
-        test_info = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
+                                    args.epochs, device, pretrain=False, finetune=finetune, \
+                                    train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
+                                          wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+        # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
+        test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y')
+                                    args.epochs, device, pretrain=False, finetune=finetune, \
+                                    test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
+                                        wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+        # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
         lrs_net+=train_info['lrs_net']
         lrs_classifier+=train_info['lrs_class']
@@ -385,7 +397,11 @@ def run_pipnet(args=None):
             net.eval()
             torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained'))
 
-            if epoch%30 == 0:
+            if epoch%10 == 0:
+                # visualize prototypes
+                for node in root.nodes_with_children():
+                    topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk_ep={epoch}/{node.name}', args, node=node)
+                # save model
                 net.eval()
                 torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_%s'%str(epoch)))            
         
