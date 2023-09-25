@@ -168,8 +168,11 @@ class Node:
             active_nodes = new_active_nodes                            
 
 
-    def is_descendent(name):
+    def is_descendent(self, name):
         return name in self.descendents        
+    
+    def num_descendents(self):
+        return len(self.descendents)
 
 
     # def closest_descendent_for(self,name):

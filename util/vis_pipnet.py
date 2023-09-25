@@ -37,8 +37,10 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     saved = dict()
     saved_ys = dict()
     tensors_per_prototype = dict()
+
+    proto_count = getattr(net.module, '_'+node.name+'_num_protos')
     
-    for p in range(net.module._num_prototypes):
+    for p in range(proto_count):
         near_imgs_dir = os.path.join(dir, str(p))
         near_imgs_dirs[p]=near_imgs_dir
         seen_max[p]=0.
@@ -161,7 +163,7 @@ def visualize_topk(net, projectloader, num_classes, device, foldername, args: ar
     all_tensors = []
     # if wandb_logging:
     #     run = wandb.init(dir=f"/Media/{node.name}", reinit=True)
-    for p in range(net.module._num_prototypes):
+    for p in range(proto_count):
         if saved[p]>0:
             # add text next to each topk-grid, to easily see which prototype it is
 
@@ -257,8 +259,10 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
     tensors_per_prototype = dict()
     abstainedimgs = set()
     notabstainedimgs = set()
+
+    proto_count = getattr(net.module, '_'+node.name+'_num_protos')
     
-    for p in range(net.module._num_prototypes):
+    for p in range(proto_count):
         near_imgs_dir = os.path.join(dir, str(p))
         near_imgs_dirs[p]=near_imgs_dir
         seen_max[p]=0.
@@ -311,7 +315,7 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
         # In PyTorch, images are represented as [channels, height, width]
         max_per_prototype_h, max_idx_per_prototype_h = torch.max(max_per_prototype, dim=1)
         max_per_prototype_w, max_idx_per_prototype_w = torch.max(max_per_prototype_h, dim=1)
-        for p in range(0, net.module._num_prototypes):
+        for p in range(0, proto_count):
             c_weight = torch.max(classification_weights[:,p]) #ignore prototypes that are not relevant to any class
             if c_weight>0:
                 h_idx = max_idx_per_prototype_h[p, max_idx_per_prototype_w[p]]
@@ -353,7 +357,7 @@ def visualize(net, projectloader, num_classes, device, foldername, args: argpars
 
     print("num images abstained: ", len(abstainedimgs), flush=True)
     print("num images not abstained: ", len(notabstainedimgs), flush=True)
-    for p in range(net.module._num_prototypes):
+    for p in range(proto_count):
         if saved[p]>0:
             try:
                 sorted_by_second = sorted(tensors_per_prototype[p], key=lambda tup: tup[1], reverse=True)

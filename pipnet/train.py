@@ -437,28 +437,29 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     uni_loss_ep_mean /= float(i+1)
 
     log_dict = {}
-    if wandb_logging:
-        log_dict[wandb_log_subdir + "/epoch loss"] = test_info['loss']
-        log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['accuracy']
-        log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
-        log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
-        log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
-        log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
-        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
-        log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
-        # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
-        # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
-        # wandb_run.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
+    # if wandb_logging:
+    log_dict[wandb_log_subdir + "/epoch loss"] = test_info['loss']
+    log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['accuracy']
+    log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
+    log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
+    log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
+    log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
+    log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
+    log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
+    # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
+    # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
+    # wandb_run.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
 
     for node_name in node_accuracy:
         node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
         node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
                                                     average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
         node_accuracy[node_name]['f1'] = round(node_accuracy[node_name]['f1'] * 100, 2)
-        if wandb_logging:
-            log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
-            log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
-    wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
+        # if wandb_logging:
+        log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
+        log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
+    if wandb_logging:
+        wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
 
     test_info['node_accuracy'] = node_accuracy
     print('\tFine accuracy:', round(test_info['fine_accuracy'], 2))
@@ -474,22 +475,23 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         print(log_string)
 
     # create a log csv file for each node to log the different loss values
-    log_sub_dir = 'node_wise_metrics_val'
-    os.makedirs(os.path.join(log.log_dir, log_sub_dir), exist_ok=True)
-    for node_name in node_wise_losses:
-        loss_names = sorted(list(node_wise_losses[node_name].keys()))
-        try:
-            log.create_log(f'{log_sub_dir}/{node_name}_losses', 'epoch', *loss_names)
-        except Exception as e:
-            pass
+    if log:
+        log_sub_dir = 'node_wise_metrics_val'
+        os.makedirs(os.path.join(log.log_dir, log_sub_dir), exist_ok=True)
+        for node_name in node_wise_losses:
+            loss_names = sorted(list(node_wise_losses[node_name].keys()))
+            try:
+                log.create_log(f'{log_sub_dir}/{node_name}_losses', 'epoch', *loss_names)
+            except Exception as e:
+                pass
 
-        epoch_losses = [] # contains mean over each step for each loss
-        for loss_name in loss_names:
-            if len(node_wise_losses[node_name][loss_name]) != 0:
-                epoch_losses.append(np.mean(node_wise_losses[node_name][loss_name]))
-            else:
-                epoch_losses.append('n.a')
-        log.log_values(f'{log_sub_dir}/{node_name}_losses', epoch if pretrain else (epoch+pretrain_epochs), *epoch_losses)
+            epoch_losses = [] # contains mean over each step for each loss
+            for loss_name in loss_names:
+                if len(node_wise_losses[node_name][loss_name]) != 0:
+                    epoch_losses.append(np.mean(node_wise_losses[node_name][loss_name]))
+                else:
+                    epoch_losses.append('n.a')
+            log.log_values(f'{log_sub_dir}/{node_name}_losses', epoch if pretrain else (epoch+pretrain_epochs), *epoch_losses)
     
     return test_info, log_dict
 

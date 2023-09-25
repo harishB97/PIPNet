@@ -25,11 +25,12 @@ class PIPNet(nn.Module):
         assert num_classes > 0
         self._num_features = args.num_features
         self._num_classes = num_classes
-        self._num_prototypes = num_prototypes
+        self._num_prototypes = num_prototypes # this is only the minimum number of protos per node, might vary for each node
         self._net = feature_net
         # self._add_on = add_on_layers
         for node_name in add_on_layers:
             setattr(self, '_'+node_name+'_add_on', add_on_layers[node_name])
+            setattr(self, '_'+node_name+'_num_protos', add_on_layers[node_name].weight.shape[0])
         self._pool = pool_layer
         for node_name in classification_layers:
             setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
@@ -184,8 +185,14 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
         
     parent_nodes = root.nodes_with_children()
     add_on_layers = {}
+    prototypes_per_descendant = 4
+    # change 0 to num_prototypes for having minimum num of protos at any node
+    print((10*'-')+f'Prototypes per descendant: {prototypes_per_descendant}'+(10*'-'))
     for node in parent_nodes:
-        add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True)
+        add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=max(20, (node.num_descendents() * prototypes_per_descendant)), \
+                                             kernel_size=1, stride = 1, padding=0, bias=True)
+        proto_count = max(0, (node.num_descendents() * prototypes_per_descendant))
+        print(f'Assigned {proto_count} protos to node {node.name}')
 
     # add_on_layers = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes * len(parent_nodes), kernel_size=1, stride = 1, padding=0, bias=True)
 
@@ -201,7 +208,8 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
 
     classification_layers = {}
     for node in parent_nodes:
-        classification_layers[node.name] = NonNegLinear(num_prototypes, node.num_children(), bias=True if args.bias else False)
+        classification_layers[node.name] = NonNegLinear(max(20, (node.num_descendents() * prototypes_per_descendant)), \
+                                                        node.num_children(), bias=True if args.bias else False)
         
     return features, add_on_layers, pool_layer, classification_layers, num_prototypes
 
