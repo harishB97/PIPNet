@@ -138,6 +138,10 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to apply kernel orthogonality on the last conv kernels (prototypes).'
                         )
+    parser.add_argument('--num_protos_per_descendant',
+                        type=int,
+                        default=4,
+                        help='Used for deciding the num of protos to assign for each node based on the number of descendants.')
     
 # 
     args = parser.parse_args()

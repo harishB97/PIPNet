@@ -22,6 +22,7 @@ from util.node import Node
 import shutil
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 
+import time
 import wandb
 
 
@@ -48,11 +49,12 @@ def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
 					shutil.copy(src_file_path, dest_file_path)
 
 def run_pipnet(args=None):
-
+    time_ = time.time()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
+    print('manual_seed', (time.time()-time_)/60)
 
     args = args or get_args()
     assert args.batch_size > 1
@@ -61,14 +63,18 @@ def run_pipnet(args=None):
     log = Log(args.log_dir)
     print("Log dir: ", args.log_dir, flush=True)
     # Log the run arguments
+
+    time_ = time.time()
     save_args(args, log.metadata_dir)
 
     copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
-    
+    print('copy_files', (time.time()-time_)/60)
     # os.environ['WANDB_MODE'] = 'offline'
     # os.environ['WANDB_DIR'] = args.log_dir
     
+    time_ = time.time()
     wandb_run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
+    print('wandb_run', (time.time()-time_)/60)
 
     if args.phylo_config:
         phylo_config = OmegaConf.load(args.phylo_config)
@@ -94,6 +100,10 @@ def run_pipnet(args=None):
         # flat root
         # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
     root.assign_all_descendents()
+
+    # update num of protos per node based on num_protos_per_descendant
+    for node in root.nodes_with_children():
+        node.set_num_protos(args.num_protos_per_descendant)
 
     gpu_list = args.gpu_ids.split(',')
     device_ids = []
@@ -285,10 +295,10 @@ def run_pipnet(args=None):
         net.eval()
         torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_pretrained'))
         net.train()
-    with torch.no_grad():
-        if 'convnext' in args.net and args.epochs_pretrain > 0:
-            for node in root.nodes_with_children():
-                topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
+    # with torch.no_grad():
+    #     if 'convnext' in args.net and args.epochs_pretrain > 0:
+    #         for node in root.nodes_with_children():
+    #             topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
         
     # ------------------------- SECOND TRAINING PHASE -------------------------
     # re-initialize optimizers and schedulers for second training phase
@@ -399,8 +409,8 @@ def run_pipnet(args=None):
 
             if epoch%30 == 0:
                 # visualize prototypes
-                for node in root.nodes_with_children():
-                    topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk_ep={epoch}/{node.name}', args, node=node)
+                # for node in root.nodes_with_children():
+                #     topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk_ep={epoch}/{node.name}', args, node=node)
                 # save model
                 net.eval()
                 torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_%s'%str(epoch)))            
@@ -416,78 +426,78 @@ def run_pipnet(args=None):
     net.eval()
     torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_last'))
 
-    for node in root.nodes_with_children():
-        topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
-        # set weights of prototypes that are never really found in projection set to 0
-        set_to_zero = []
-        classification_layer = getattr(net.module, '_'+node.name+'_classification')
-        if topks:
-            for prot in topks.keys():
-                found = False
-                for (i_id, score) in topks[prot]:
-                    if score > 0.1:
-                        found = True
-                if not found:
-                    torch.nn.init.zeros_(classification_layer.weight[:,prot])
-                    set_to_zero.append(prot)
-            print(f"Weights of prototypes of node {node.name}", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
+    # for node in root.nodes_with_children():
+    #     topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
+    #     # set weights of prototypes that are never really found in projection set to 0
+    #     set_to_zero = []
+    #     classification_layer = getattr(net.module, '_'+node.name+'_classification')
+    #     if topks:
+    #         for prot in topks.keys():
+    #             found = False
+    #             for (i_id, score) in topks[prot]:
+    #                 if score > 0.1:
+    #                     found = True
+    #             if not found:
+    #                 torch.nn.init.zeros_(classification_layer.weight[:,prot])
+    #                 set_to_zero.append(prot)
+    #         print(f"Weights of prototypes of node {node.name}", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
 
-        # Not doing this for now requires modification in test.py
-        # eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
-        # log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
+    #     # Not doing this for now requires modification in test.py
+    #     # eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
+    #     # log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
 
-        print(f"classifier weights {node.name}: ", classification_layer.weight, flush=True)
-        print(f"Classifier weights nonzero {node.name}: ", classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)], (classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)]).shape, flush=True)
-        print(f"Classifier bias {node.name}: ", classification_layer.bias, flush=True)
+    #     print(f"classifier weights {node.name}: ", classification_layer.weight, flush=True)
+    #     print(f"Classifier weights nonzero {node.name}: ", classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)], (classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)]).shape, flush=True)
+    #     print(f"Classifier bias {node.name}: ", classification_layer.bias, flush=True)
 
     # Print weights and relevant prototypes per class
-    for node in root.nodes_with_children():
-        classification_layer = getattr(net.module, '_'+node.name+'_classification')
-        coarse_label_to_name = {label:name for name, label in node.children_to_labels.items()}
-        print(f"Node: {node.name}, Class -> Prototypes")
-        for c in range(classification_layer.weight.shape[0]):
-            relevant_ps = []
-            proto_weights = classification_layer.weight[c,:]
-            for p in range(classification_layer.weight.shape[1]):
-                if proto_weights[p]> 1e-3:
-                    relevant_ps.append((p, proto_weights[p].item()))
-            if args.validation_size == 0.:
-                print("Class", c, "(", coarse_label_to_name[c], "):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
-                # print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
+    # for node in root.nodes_with_children():
+    #     classification_layer = getattr(net.module, '_'+node.name+'_classification')
+    #     coarse_label_to_name = {label:name for name, label in node.children_to_labels.items()}
+    #     print(f"Node: {node.name}, Class -> Prototypes")
+    #     for c in range(classification_layer.weight.shape[0]):
+    #         relevant_ps = []
+    #         proto_weights = classification_layer.weight[c,:]
+    #         for p in range(classification_layer.weight.shape[1]):
+    #             if proto_weights[p]> 1e-3:
+    #                 relevant_ps.append((p, proto_weights[p].item()))
+    #         if args.validation_size == 0.:
+    #             print("Class", c, "(", coarse_label_to_name[c], "):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
+    #             # print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
 
-        print(f"Node: {node.name}, Prototypes -> Class")
-        for p in range(classification_layer.weight.shape[1]):
-            relevant_classes = []
-            proto_weights = classification_layer.weight[:,p]
-            for c in range(classification_layer.weight.shape[0]):
-                if proto_weights[c]> 1e-3:
-                    relevant_classes.append((c, proto_weights[c].item()))
-            if relevant_classes:
-                print("Prototype", p, " present in", len(relevant_classes), "classes: ", [coarse_label_to_name[rc[0]] for rc in relevant_classes], flush=True)
+    #     print(f"Node: {node.name}, Prototypes -> Class")
+    #     for p in range(classification_layer.weight.shape[1]):
+    #         relevant_classes = []
+    #         proto_weights = classification_layer.weight[:,p]
+    #         for c in range(classification_layer.weight.shape[0]):
+    #             if proto_weights[c]> 1e-3:
+    #                 relevant_classes.append((c, proto_weights[c].item()))
+    #         if relevant_classes:
+    #             print("Prototype", p, " present in", len(relevant_classes), "classes: ", [coarse_label_to_name[rc[0]] for rc in relevant_classes], flush=True)
 
     # Evaluate prototype purity        
-    if args.dataset == 'CUB-200-2011':
-        projectset_img0_path = projectloader.dataset.samples[0][0]
-        project_path = os.path.split(os.path.split(projectset_img0_path)[0])[0].split("dataset")[0]
-        parts_loc_path = os.path.join(project_path, "parts/part_locs.txt")
-        parts_name_path = os.path.join(project_path, "parts/parts.txt")
-        imgs_id_path = os.path.join(project_path, "images.txt")
-        cubthreshold = 0.5 
+    # if args.dataset == 'CUB-200-2011':
+    #     projectset_img0_path = projectloader.dataset.samples[0][0]
+    #     project_path = os.path.split(os.path.split(projectset_img0_path)[0])[0].split("dataset")[0]
+    #     parts_loc_path = os.path.join(project_path, "parts/part_locs.txt")
+    #     parts_name_path = os.path.join(project_path, "parts/parts.txt")
+    #     imgs_id_path = os.path.join(project_path, "images.txt")
+    #     cubthreshold = 0.5 
 
-        net.eval()
-        print("\n\nEvaluating cub prototypes for training set", flush=True)        
-        csvfile_topk = get_topk_cub(net, projectloader, 10, 'train_'+str(epoch), device, args)
-        eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'train_topk_'+str(epoch), args, log)
+    #     net.eval()
+    #     print("\n\nEvaluating cub prototypes for training set", flush=True)        
+    #     csvfile_topk = get_topk_cub(net, projectloader, 10, 'train_'+str(epoch), device, args)
+    #     eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'train_topk_'+str(epoch), args, log)
         
-        csvfile_all = get_proto_patches_cub(net, projectloader, 'train_all_'+str(epoch), device, args, threshold=cubthreshold)
-        eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'train_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
+    #     csvfile_all = get_proto_patches_cub(net, projectloader, 'train_all_'+str(epoch), device, args, threshold=cubthreshold)
+    #     eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'train_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
         
-        print("\n\nEvaluating cub prototypes for test set", flush=True)
-        csvfile_topk = get_topk_cub(net, test_projectloader, 10, 'test_'+str(epoch), device, args)
-        eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'test_topk_'+str(epoch), args, log)
-        cubthreshold = 0.5
-        csvfile_all = get_proto_patches_cub(net, test_projectloader, 'test_'+str(epoch), device, args, threshold=cubthreshold)
-        eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'test_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
+    #     print("\n\nEvaluating cub prototypes for test set", flush=True)
+    #     csvfile_topk = get_topk_cub(net, test_projectloader, 10, 'test_'+str(epoch), device, args)
+    #     eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'test_topk_'+str(epoch), args, log)
+    #     cubthreshold = 0.5
+    #     csvfile_all = get_proto_patches_cub(net, test_projectloader, 'test_'+str(epoch), device, args, threshold=cubthreshold)
+    #     eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'test_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
         
     # visualize predictions - not doing this for now
     # visualize(net, projectloader, len(classes), device, 'visualised_prototypes', args)
@@ -535,11 +545,15 @@ class Tee(object):
         self.file.flush()
 
 if __name__ == '__main__':
+    time_ = time.time()
     args = get_args()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
+    print('manual_seed', (time.time()-time_)/60)
+
+    time_ = time.time()
     print_dir = os.path.join(args.log_dir,'out.txt')
     tqdm_dir = os.path.join(args.log_dir,'tqdm.txt')
     if not os.path.isdir(args.log_dir):
@@ -552,6 +566,7 @@ if __name__ == '__main__':
 
     sys.stdout = Tee(print_dir, 'a', sys.stdout)
     sys.stderr = Tee(tqdm_dir, 'a', sys.stderr)
+    print('stderr', (time.time()-time_)/60)
     run_pipnet(args)
     
     # sys.stdout.close()

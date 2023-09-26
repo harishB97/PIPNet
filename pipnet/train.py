@@ -505,6 +505,7 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
     OOD_loss = {}
     kernel_orth_loss = {}
     uni_loss = {}
+    # tanh_desc_loss = {}
     for node in root.nodes_with_children():
         children_idx = torch.tensor([name in node.descendents for name in batch_names])
         batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.descendents]
@@ -513,33 +514,59 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
         if len(node_y) == 0:
             continue
 
-        # ys = torch.cat([node_y,node_y])
-
-        # pooled1, pooled2 = pooled[node.name].chunk(2)
-        # pooled1 = pooled1[children_idx]
-        # pooled2 = pooled2[children_idx]
-
-        pooled1, pooled2 = pooled[node.name][children_idx].chunk(2)
-
-        # pf1, pf2 = proto_features[node.name].chunk(2)
-        # pf1 = pf1[children_idx]
-        # pf2 = pf2[children_idx]
-
-        pf1, pf2 = proto_features[node.name][children_idx].chunk(2)
-
-        # out[node.name] = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
-        # node_logits = out[node.name][torch.cat([children_idx,children_idx])] # since out will have 2*batch_size samples
         node_logits = out[node.name][children_idx]
 
+        # alignment calculation
+        pf1, pf2 = proto_features[node.name][children_idx].chunk(2)
         embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
         embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
-        
         a_loss_pf[node.name] = (align_loss(embv1, embv2.detach()) \
                                 + align_loss(embv2, embv1.detach())) / 2.
-
-        tanh_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() \
-                                 + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean()) / 2.
         
+        # # tanh calculation
+        # tanh_for_each_child = []
+        # for child_node in node.children:
+        #     child_of_childnode_idx = torch.tensor([name in child_node.descendents for name in batch_names])
+        #     child_node_pooled1, child_node_pooled2 = pooled[node.name][child_node.name][child_of_childnode_idx].chunk(2)
+        #     child_node_tanh_loss = -(torch.log(torch.tanh(torch.sum(child_node_pooled1,dim=0))+EPS).mean() \
+        #                          + torch.log(torch.tanh(torch.sum(child_node_pooled2,dim=0))+EPS).mean()) / 2.
+        #     tanh_for_each_child.append(child_node_tanh_loss)
+        # tanh_loss[node.name] = torch.mean(torch.stack(tanh_for_each_child), dim=0)
+        
+        # pooled1, pooled2 = pooled[node.name][children_idx].chunk(2)
+        # tanh_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() \
+        #                          + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean()) / 2.
+
+        # tanh loss corresponding to every descendant species
+        tanh_for_each_descendant = []
+        for child_node in node.children:
+            if child_node.is_leaf(): # because leaf nodes do not have any descendants
+                descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
+                descendant_pooled1, descendant_pooled2 = pooled[node.name][child_node.name][descendant_idx].chunk(2)
+                descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
+                                                    + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
+                tanh_for_each_descendant.append(descendant_tanh_loss)
+            else:
+                for descendant_name in child_node.descendents:
+                    descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
+                    descendant_pooled1, descendant_pooled2 = pooled[node.name][child_node.name][descendant_idx].chunk(2)
+                    descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
+                                                        + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
+                    tanh_for_each_descendant.append(descendant_tanh_loss)
+        tanh_loss[node.name] = torch.mean(torch.stack(tanh_for_each_descendant), dim=0)
+
+        # for descendant_name in set(batch_names):
+        #     if descendant_name in node.descendents:
+        #         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
+        #         pooled1_descendant, pooled2_descendant = pooled[node.name][descendant_idx].chunk(2)
+        #         if node.name in tanh_desc_loss:
+        #             tanh_desc_loss[node.name] += -(torch.log(torch.tanh(torch.sum(pooled1_descendant,dim=0))+EPS).mean() \
+        #                                             + torch.log(torch.tanh(torch.sum(pooled2_descendant,dim=0))+EPS).mean()) / 2.
+        #         else:
+        #             tanh_desc_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1_descendant,dim=0))+EPS).mean() \
+        #                                             + torch.log(torch.tanh(torch.sum(pooled2_descendant,dim=0))+EPS).mean()) / 2.
+        
+        # may not be required
         if kernel_orth:
             prototype_kernels = getattr(net.module, '_'+node.name+'_add_on')
             classification_layer = getattr(net.module, '_'+node.name+'_classification')
@@ -551,6 +578,7 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
             # pretraining or general training
             loss += align_pf_weight * a_loss_pf[node.name]
             loss += t_weight * tanh_loss[node.name]
+            # loss += t_weight * tanh_desc_loss[node.name]
             if kernel_orth:
                 loss += orth_weight * kernel_orth_loss[node.name]
         
@@ -560,6 +588,7 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
             class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1),node_y) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
             loss += cl_weight * class_loss[node.name]
 
+            # may not be required
             if OOD_loss_required:
                 not_children_idx = torch.tensor([name not in node.descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
                 OOD_logits = out[node.name][not_children_idx] # [sum(not_children_idx), node.num_children()]
@@ -590,6 +619,7 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
         with torch.no_grad():
             avg_a_loss_pf = np.mean([node_a_loss_pf.item() for node_name, node_a_loss_pf in a_loss_pf.items()])
             avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
+            # avg_tanh_desc_loss = np.mean([node_tanh_desc_loss.item() for node_name, node_tanh_desc_loss in tanh_desc_loss.items()])
 
             # optional loss, dict will be empty if not used, so setting the average to a placeholder vale
             if len(kernel_orth_loss) > 0:
@@ -606,11 +636,6 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
             avg_class_loss = None
             avg_OOD_loss = None
             if pretrain:
-                # # optional loss, dict will be empty if not used, so setting the average to a placeholder vale
-                # if len(uni_loss) > 0:
-                #     avg_uni_loss = np.mean([node_uni_loss.item() for node_name, node_uni_loss in uni_loss.items()])
-                # else:
-                #     avg_uni_loss = -5
                 train_iter.set_postfix_str(
                 f'L: {loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_UNI:{avg_uni_loss:.3f}',refresh=False)
             else:
@@ -618,10 +643,12 @@ def calculate_loss(net, proto_features, pooled, out, ys, align_pf_weight, t_weig
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}',refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f},\
+                          LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}',refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}',refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{avg_a_loss_pf.item():.2f},\
+                          LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}',refresh=False)            
     return loss, class_loss, a_loss_pf, tanh_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, avg_uni_loss, acc
 
 
