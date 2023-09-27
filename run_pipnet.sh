@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --account=mabrownlab
+#SBATCH --account=ml4science2
 #SBATCH --partition=a100_normal_q
 #SBATCH --time=08:00:00 
 #SBATCH --gres=gpu:1
