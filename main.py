@@ -66,9 +66,13 @@ def run_pipnet(args=None):
 
     time_ = time.time()
     save_args(args, log.metadata_dir)
+    print('save_args', (time.time()-time_)/60)
 
-    copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
-    print('copy_files', (time.time()-time_)/60)
+    # time_ = time.time()
+    # copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
+    #             extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
+    # print('copy_files', (time.time()-time_)/60)
+    
     # os.environ['WANDB_MODE'] = 'offline'
     # os.environ['WANDB_DIR'] = args.log_dir
     
@@ -245,7 +249,7 @@ def run_pipnet(args=None):
     with torch.no_grad():
         xs1, _, _ = next(iter(trainloader))
         xs1 = xs1.to(device)
-        proto_features, _, _ = net(xs1)
+        features, proto_features, _, _ = net(xs1)
         wshape = proto_features['root'].shape[-1]
         args.wshape = wshape #needed for calculating image patch size
         print("Output shape: ", proto_features['root'].shape, flush=True)
@@ -567,7 +571,10 @@ if __name__ == '__main__':
     sys.stdout = Tee(print_dir, 'a', sys.stdout)
     sys.stderr = Tee(tqdm_dir, 'a', sys.stderr)
     print('stderr', (time.time()-time_)/60)
+
+    time_ = time.time()
     run_pipnet(args)
+    print('Finished in', int(time.time()-time_)//60, 'minutes')
     
     # sys.stdout.close()
     # sys.stderr.close()

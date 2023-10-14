@@ -44,28 +44,21 @@ class PIPNet(nn.Module):
 
     
     def forward(self, xs,  inference=False):
-        # features = self._net(xs) 
-        # proto_features = {}
-        # pooled = {}
-        # out = {}
-        # for node in self.root.nodes_with_children():
-        #     proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
-        #     proto_features[node.name] = self._softmax(proto_features[node.name])
-        #     pooled[node.name] = self._pool(proto_features[node.name])
-        #     if inference:
-        #         pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
-        #     out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
-
-        features = self._net(xs) 
         proto_features = defaultdict(dict)
         proto_features_softmaxed = dict()
         pooled = defaultdict(dict)
         out = dict() #defaultdict(dict)
+
+        features = self._net(xs) 
         for node in self.root.nodes_with_children():
             for child_node in node.children:
-                proto_features[node.name][child_node.name] = getattr(self, '_'+node.name+'_'+child_node.name+'_add_on')(features)
+                # this is cosine distance, since UnitConv2D normalized kernel and input to unit length vectors
+                proto_features[node.name][child_node.name] = getattr(self, '_'+node.name+'_'+child_node.name+'_add_on')(features) 
+            # concatenate the cosine distances of two children before doing softmax
             proto_features_concatenated = torch.cat([proto_features[node.name][child_node.name] for child_node in node.children], 1) # 1 is the channel dimension
+            # softmax on the concatenated cosine distances
             proto_features_softmaxed[node.name] = self._softmax(proto_features_concatenated)
+            # split after softmax to feed it into maxpool and classification layer
             proto_features_split = torch.split(proto_features_softmaxed[node.name], [node.num_protos_per_child[child_node.name] for child_node in node.children], dim=1)
 
             for idx, child_node in enumerate(node.children):
@@ -83,7 +76,7 @@ class PIPNet(nn.Module):
             out[node.name] = torch.cat(each_class_logit, 1) #shape (bs*2, num_classes)
 
         # only pooled here is dict of dict because for applying tanh loss the "pooled" vector for each child should be seperate
-        return proto_features_softmaxed, pooled, out
+        return features, proto_features_softmaxed, pooled, out
     
     def get_joint_distribution(self, out, device='cuda'):
         
@@ -99,25 +92,6 @@ class PIPNet(nn.Module):
         bottom_level = bottom_level[:,idx]        
         
         return top_level, bottom_level
-    
-    # def forward_backbone(self, xs,  inference=False):
-    #     features = self._net(xs) 
-    #     proto_features_all_nodes = self._add_on(features)
-    #     proto_features = {}
-    #     pooled = {}
-    #     out = {}
-    #     for i, node in enumerate(self.root.nodes_with_children()):
-    #         proto_features_i = proto_features_all_nodes[:, i*self._num_prototypes:(i+1)*self._num_prototypes, :, :]
-    #         proto_features_i = self._softmax(proto_features_i)
-    #         pooled_i = self._pool(proto_features_i)
-    #         if inference:
-    #             pooled_i = torch.where(pooled_i < 0.1, 0., pooled_i)  #during inference, ignore all prototypes that have 0.1 similarity or lower
-    #         out_i = getattr(self, '_'+node.name+'_classification')(pooled_i) #shape (bs*2, num_classes) 
-    #         proto_features[node.name] = proto_features_i
-    #         pooled[node.name] = pooled_i
-    #         out[node.name] = out_i
-
-    #     return proto_features, pooled, out
     
     def get_classification_layers(self):
         return [getattr(self, attr) for attr in dir(self) if attr.endswith('_classification')] 
@@ -152,6 +126,18 @@ class NonNegLinear(nn.Module):
     def forward(self, input: Tensor) -> Tensor:
         return F.linear(input,torch.relu(self.weight), self.bias)
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class UnitConv2D(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
+        super(UnitConv2D, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+
+    def forward(self, input):
+        normalized_weight = F.normalize(self.weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
+        normalized_input = F.normalize(input, p=2, dim=1) # Normalize the input to unit vectors
+        return self._conv_forward(normalized_input, normalized_weight, self.bias)
 
 def get_network(num_classes: int, args: argparse.Namespace, root=None): 
     features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)
@@ -205,9 +191,9 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
         # print(f'Assigned {proto_count} protos to node {node.name}')
 
         for child_node in node.children:
-            add_on_layers[node.name+'_'+child_node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, \
+            add_on_layers[node.name+'_'+child_node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, \
                                                                         out_channels=node.num_protos_per_child[child_node.name], \
-                                                                        kernel_size=1, stride = 1, padding=0, bias=True) # is bias required ??
+                                                                        kernel_size=1, stride = 1, padding=0, bias=False) # is bias required ??, prev True now set to False for unit length conv2d
             print(f'Assigned {node.num_protos_per_child[child_node.name]} protos to child {child_node.name} of node {node.name}')
 
 
