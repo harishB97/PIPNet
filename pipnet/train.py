@@ -146,8 +146,13 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
         
+        print(f"Bef backward GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
         # Compute the gradient
         loss.backward()
+
+        torch.cuda.empty_cache()
+        gc.collect()
+        print(f"Aft backward GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
         for node_name, loss_value in class_loss_dict.items():
             node_wise_losses[node_name]['class_loss'].append(loss_value.item())
@@ -289,8 +294,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                 epoch_losses.append('n.a')
         log.log_values(f'{log_sub_dir}/{node_name}_losses', epoch if pretrain else (epoch+pretrain_epochs), *epoch_losses)
 
-    torch.cuda.empty_cache()
-    gc.collect()
+    
     
     return train_info, log_dict
 
@@ -519,6 +523,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
 
     features1, features2 = features.chunk(2)
 
+
     if not finetune:
         flattened_features1 = flatten_tensor(features1)
         flattened_features2 = flatten_tensor(features2)
@@ -527,8 +532,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
 
         a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
 
-        meanpooled_features1 = F.avg_pool2d(features1, kernel_size=3)
-        meanpooled_features2 = F.avg_pool2d(features2, kernel_size=3)
+        meanpooled_features1 = F.avg_pool2d(features1, kernel_size=2)
+        meanpooled_features2 = F.avg_pool2d(features2, kernel_size=2)
         flattened_meanpooled_features1 = flatten_tensor(meanpooled_features1)
         flattened_meanpooled_features2 = flatten_tensor(meanpooled_features2)
         normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)

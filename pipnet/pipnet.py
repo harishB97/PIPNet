@@ -44,9 +44,16 @@ class PIPNet(nn.Module):
 
     
     def forward(self, xs,  inference=False):
-        proto_features = defaultdict(dict)
+        # proto_features = defaultdict(dict)
+        proto_features = dict()
+        for node in self.root.nodes_with_children():
+            proto_features[node.name] = dict()
+
         proto_features_softmaxed = dict()
-        pooled = defaultdict(dict)
+        # pooled = defaultdict(dict)
+        pooled = dict()
+        for node in self.root.nodes_with_children():
+            pooled[node.name] = dict()
         out = dict() #defaultdict(dict)
 
         features = self._net(xs) 
