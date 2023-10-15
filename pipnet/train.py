@@ -34,7 +34,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     # node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'preds': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
     node_accuracy = {}
     for node in root.nodes_with_children():
-        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).to(device), 'gts': torch.empty(0).to(device)}
+        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).cpu(), 'gts': torch.empty(0).cpu()}
         node_accuracy[node.name]['children'] = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})
 
     # Make sure the model is in train mode
@@ -146,28 +146,39 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
         
-        print(f"Bef backward GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
+        print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
+        
         # Compute the gradient
         loss.backward()
 
-        torch.cuda.empty_cache()
-        gc.collect()
-        print(f"Aft backward GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
+        
+        # del features
+        # del proto_features
+        # del pooled
+        # del a_loss
 
         for node_name, loss_value in class_loss_dict.items():
             node_wise_losses[node_name]['class_loss'].append(loss_value.item())
         
+        # del class_loss_dict
+
         # for node_name, loss_value in a_loss_pf_dict.items():
         #     node_wise_losses[node_name]['a_loss'].append(loss_value.item())
 
         for node_name, loss_value in tanh_loss_dict.items():
             node_wise_losses[node_name]['tanh_loss'].append(loss_value.item())
 
+        # del tanh_loss_dict
+
         for node_name, loss_value in OOD_loss_dict.items():
             node_wise_losses[node_name]['OOD_loss'].append(loss_value.item())
 
+        # del OOD_loss_dict
+
         for node_name, loss_value in kernel_orth_loss_dict.items():
             node_wise_losses[node_name]['kernel_orth_loss'].append(loss_value.item())
+
+        # del kernel_orth_loss_dict
 
         # for node_name, loss_value in uni_loss_dict.items():
         #     node_wise_losses[node_name]['uni_loss'].append(loss_value.item())
@@ -196,6 +207,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             total_acc+=acc
             total_loss+=loss.item()
 
+        # del loss
+
         if not pretrain:
             with torch.no_grad():
                 for attr in dir(net.module):
@@ -215,6 +228,26 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         n_fine_correct += fine_correct.sum().item()
         n_samples += target.size(0)
 
+        # del out
+
+        # del loss
+        # del features
+        # del proto_features
+        # del pooled
+        # del out
+        # del class_loss_dict
+        # del a_loss
+        # del tanh_loss_dict
+        # del OOD_loss_dict
+        # del kernel_orth_loss_dict
+
+        # del uni_loss
+        # del avg_class_loss
+        # del avg_a_loss_pf
+        # del avg_tanh_loss
+        # del avg_OOD_loss
+        # del avg_kernel_orth_loss
+        # del acc
         
 
 
@@ -263,7 +296,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
     # wandb_run.log(log_dict, step=epoch)
 
-    train_info['node_accuracy'] = node_accuracy
+    # train_info['node_accuracy'] = node_accuracy
     print('\tFine accuracy:', round(train_info['fine_accuracy'], 2))
     for node_name in node_accuracy:
         acc = node_accuracy[node_name]["accuracy"]
@@ -295,7 +328,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         log.log_values(f'{log_sub_dir}/{node_name}_losses', epoch if pretrain else (epoch+pretrain_epochs), *epoch_losses)
 
     
-    
+
     return train_info, log_dict
 
 
@@ -314,7 +347,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     # node_accuracy = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'preds': None, 'children': defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})})
     node_accuracy = {}
     for node in root.nodes_with_children():
-        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).to(device), 'gts': torch.empty(0).to(device)}
+        node_accuracy[node.name] = {'n_examples': 0, 'n_correct': 0, 'accuracy': None, 'f1': None, 'preds': torch.empty(0, node.num_children()).cpu(), 'gts': torch.empty(0).cpu()}
         node_accuracy[node.name]['children'] = defaultdict(lambda: {'n_examples': 0, 'n_correct': 0})
 
     # Make sure the model is in eval mode
@@ -398,6 +431,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
             
+            # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
+
             for node_name, loss_value in class_loss_dict.items():
                 node_wise_losses[node_name]['class_loss'].append(loss_value.item())
             
@@ -615,7 +650,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
                 sigmoid_out = F.sigmoid(torch.log1p(OOD_logits**net_normalization_multiplier))
                 OOD_loss[node.name] = F.binary_cross_entropy(sigmoid_out, torch.zeros_like(OOD_logits))
                 loss += OOD_loss_weight * OOD_loss[node.name]
-                losses_used.append('OOD')
+                if not 'OOD' in losses_used:
+                    losses_used.append('OOD')
         # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines
         # else:
         #     uni_loss[node.name] = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
@@ -628,8 +664,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
         for child in node.children:
             node_accuracy[node.name]['children'][child.name]['n_examples'] += (node_y == node.children_to_labels[child.name]).sum().item()
             node_accuracy[node.name]['children'][child.name]['n_correct'] += (node_coarsest_predicted[node_y == node.children_to_labels[child.name]] == node.children_to_labels[child.name]).sum().item()
-            node_accuracy[node.name]['preds'] = torch.cat((node_accuracy[node.name]['preds'], node_logits))
-            node_accuracy[node.name]['gts'] = torch.cat((node_accuracy[node.name]['gts'], node_y))
+            node_accuracy[node.name]['preds'] = torch.cat((node_accuracy[node.name]['preds'], node_logits.detach().cpu())).detach().cpu()#.numpy()
+            node_accuracy[node.name]['gts'] = torch.cat((node_accuracy[node.name]['gts'], node_y.detach().cpu())).detach().cpu()#.numpy()
 
     acc=0.
     # if not pretrain:
@@ -677,8 +713,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
                     f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f},\
-                          LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
     return loss, class_loss, a_loss, tanh_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc
 
 def flatten_tensor(x):
