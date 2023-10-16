@@ -68,10 +68,11 @@ def run_pipnet(args=None):
     save_args(args, log.metadata_dir)
     print('save_args', (time.time()-time_)/60)
 
-    # time_ = time.time()
-    # copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
-    #             extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
-    # print('copy_files', (time.time()-time_)/60)
+    if args.copy_files:
+        time_ = time.time()
+        copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
+                    extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
+        print('copy_files', (time.time()-time_)/60)
     
     # os.environ['WANDB_MODE'] = 'offline'
     # os.environ['WANDB_DIR'] = args.log_dir
@@ -325,7 +326,7 @@ def run_pipnet(args=None):
     lrs_classifier = []
    
     for epoch in range(1, args.epochs + 1):                      
-        epochs_to_finetune = 3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
+        epochs_to_finetune = 0 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False

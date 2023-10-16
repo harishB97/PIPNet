@@ -142,6 +142,11 @@ def get_args() -> argparse.Namespace:
                         type=int,
                         default=4,
                         help='Used for deciding the num of protos to assign for each node based on the number of descendants.')
+    parser.add_argument('--copy_files',
+                        type=str,
+                        default='y',
+                        help='(y/n) Flag that indicates whether to copy all py, sh, ipynb, yaml files.'
+                        )
     
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:
