@@ -88,6 +88,23 @@ def get_data(args: argparse.Namespace):
                                 args.image_size, args.seed, args.validation_size, 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+    if args.dataset =='CUB-190':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_190/dataset'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_190/dataset'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection
     if args.dataset =='CUB-27-imgnet-224':
         try:
             
@@ -153,6 +170,24 @@ def get_data(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
                                     os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+
+    if args.dataset =='CUB-18-224':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_18_pipnet_224_with_bg'
+            return get_birds(True, os.path.join(base_path, 'train_bb_crop_224'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir, using the same as train_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_bb_crop_224'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain, using the same as train_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection, using the same as test_dir but its different in other dataset definitions
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_18_pipnet_224_with_bg'
+            return get_birds(True, os.path.join(base_path, 'train_bb_crop_224'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir, using the same as train_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_bb_crop_224'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain, using the same as train_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_full')) # test_dir_projection, using the same as test_dir but its different in other dataset definitions
     if args.dataset =='CUB-190-imgnet-reduced':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 

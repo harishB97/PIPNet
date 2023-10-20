@@ -60,6 +60,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     total_acc = 0.
     class_loss_ep_mean = 0.
     a_loss_pf_ep_mean = 0.
+    a_loss_ep_mean = 0.
     tanh_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
     kernel_orth_loss_ep_mean = 0.
@@ -83,8 +84,10 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     print("Number of parameters that require gradient: ", count_param, flush=True)
 
     if pretrain:
-        align_pf_weight = (epoch/nr_epochs)*1.
-        unif_weight = 0.5
+        # align_pf_weight = (epoch/nr_epochs)*1.
+        # unif_weight = 0.5
+        align_pf_weight = 3.
+        unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
         cl_weight = 0.
         # optional losses
@@ -93,6 +96,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     else:
         align_pf_weight = 5. 
         unif_weight = 2. # 0.
+        align_pf_weight = 3. 
+        unif_weight = 3. # 0.
         t_weight = 2.
         cl_weight = 2.
         # optional losses
@@ -146,10 +151,20 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
                            criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth)
         
+        # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
         
         # # Compute the gradient
         # loss.backward()
+
+        with torch.no_grad():
+            features1, features2 = features.chunk(2)
+            flattened_meanpooled_features1 = flatten_tensor(features1)
+            flattened_meanpooled_features2 = flatten_tensor(features2)
+            normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)
+            normalized_flattened_meanpooled_features2 = F.normalize(flattened_meanpooled_features2, p=2, dim=1)
+            true_uni_loss = (uniform_loss(normalized_flattened_meanpooled_features1) \
+                        + uniform_loss(normalized_flattened_meanpooled_features2)) / 2.
 
         
         # del features
@@ -188,8 +203,10 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else -5
         OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else -5
         kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else -5
-        a_loss_pf_ep_mean += avg_a_loss_pf if avg_a_loss_pf else -5
-        uni_loss_ep_mean += avg_uni_loss if avg_uni_loss else -5
+
+        # modifying the these two because they are not calculated for each node anymore
+        a_loss_ep_mean += a_loss # avg_a_loss_pf if avg_a_loss_pf else -5
+        uni_loss_ep_mean += uni_loss # avg_uni_loss if avg_uni_loss else -5
         
         if not pretrain:
             optimizer_classifier.step()   
@@ -249,31 +266,57 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # del avg_kernel_orth_loss
         # del acc
         
-
-
-    train_info['fine_accuracy'] = n_fine_correct/n_samples
-    train_info['train_accuracy'] = total_acc/float(i+1)
-    train_info['loss'] = total_loss/float(i+1)
-    train_info['lrs_net'] = lrs_net
-    train_info['lrs_class'] = lrs_class
-
     class_loss_ep_mean /= float(i+1)
-    a_loss_pf_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
     OOD_loss_ep_mean /= float(i+1)
     kernel_orth_loss_ep_mean /= float(i+1)
-    # uni_loss_ep_mean /= float(i+1)
+    a_loss_ep_mean /= float(i+1)
+    uni_loss_ep_mean /= float(i+1)
 
+    train_info['fine_accuracy'] = n_fine_correct/n_samples
+    train_info['train_accuracy'] = total_acc/float(i+1) # have to check what this is not sure how it is useful
+    train_info['loss'] = total_loss/float(i+1)
+    train_info['class_loss (mean over epoch,nodes)'] = class_loss_ep_mean.item() if isinstance(class_loss_ep_mean, torch.Tensor) else class_loss_ep_mean
+    train_info['kernel_orth_loss (mean over epoch,nodes)'] = kernel_orth_loss_ep_mean.item() if isinstance(kernel_orth_loss_ep_mean, torch.Tensor) else kernel_orth_loss_ep_mean
+    train_info['tanh_loss (mean over epoch,nodes)'] = tanh_loss_ep_mean.item() if isinstance(tanh_loss_ep_mean, torch.Tensor) else tanh_loss_ep_mean
+    train_info['OOD_loss (mean over epoch,nodes)'] = OOD_loss_ep_mean.item() if isinstance(OOD_loss_ep_mean, torch.Tensor) else OOD_loss_ep_mean
+    train_info['a_loss (mean over epoch)'] = a_loss_ep_mean.item() if isinstance(a_loss_ep_mean, torch.Tensor) else a_loss_ep_mean
+    train_info['uni_loss (mean over epoch)'] = uni_loss_ep_mean.item() if isinstance(uni_loss_ep_mean, torch.Tensor) else uni_loss_ep_mean
+    train_info['true_uni_loss (without averaging)'] = true_uni_loss.item()
+    train_info['lrs_net'] = lrs_net
+    train_info['lrs_class'] = lrs_class
+
+    # Logging to CSV
+    # logging epoch level metrics
+    try:
+        log.create_log(f'epoch_wise_metrics_train', 'epoch', 'fine_accuracy', \
+                        'loss', 'class_loss (mean over epoch,nodes)',\
+                        'kernel_orth_loss (mean over epoch,nodes)',\
+                        'tanh_loss (mean over epoch,nodes)',\
+                        'OOD_loss (mean over epoch,nodes)',\
+                        'a_loss (mean over epoch)',\
+                        'uni_loss (mean over epoch)')
+    except Exception as e:
+        pass
+    log.log_values(f'epoch_wise_metrics_train', epoch if pretrain else (epoch+pretrain_epochs), n_fine_correct/n_samples,
+                   train_info['loss'], train_info['class_loss (mean over epoch,nodes)'],
+                   train_info['kernel_orth_loss (mean over epoch,nodes)'],
+                   train_info['tanh_loss (mean over epoch,nodes)'],
+                   train_info['OOD_loss (mean over epoch,nodes)'],
+                   train_info['a_loss (mean over epoch)'],
+                   train_info['uni_loss (mean over epoch)'])
+    
+    # Loggin to WandB
     log_dict = {}
     if wandb_logging:
         log_dict[wandb_log_subdir + "/epoch loss"] = train_info['loss']
         log_dict[wandb_log_subdir + "/fine_accuracy"] = train_info['fine_accuracy']
         log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
-        log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
         log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
         log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
         log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
-        # log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
+        log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_ep_mean
+        log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
         # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
         # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
         # wandb_run.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
@@ -292,9 +335,10 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             for loss_name in node_wise_losses[node_name]:
                 log_dict[wandb_log_subdir + f"/node_wise_{loss_name}/{node_name}"] = np.mean(node_wise_losses[node_name][loss_name])
 
-    wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
+        wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
     # wandb_run.log(log_dict, step=epoch)
 
+    # Logging to console
     # train_info['node_accuracy'] = node_accuracy
     print('\tFine accuracy:', round(train_info['fine_accuracy'], 2))
     for node_name in node_accuracy:
@@ -308,6 +352,9 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(child_n_correct/child_n_examples, 2)}'
         print(log_string)
 
+
+    # Logging CSV
+    # logging node level metrics
     # create a log csv file for each node to log the different loss values
     log_sub_dir = 'node_wise_metrics_train'
     os.makedirs(os.path.join(log.log_dir, log_sub_dir), exist_ok=True)
@@ -358,6 +405,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     total_acc = 0.
     class_loss_ep_mean = 0.
     a_loss_pf_ep_mean = 0.
+    a_loss_ep_mean = 0.
     tanh_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
     kernel_orth_loss_ep_mean = 0.
@@ -376,9 +424,10 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 
     if pretrain:
         align_pf_weight = (epoch/nr_epochs)*1.
-        unif_weight = 0.5 #ignored
+        unif_weight = 0.5 
         t_weight = 5.
         cl_weight = 0.
+        # optional losses
         OOD_loss_weight = 0.
         orth_weight = 0.5
     else:
@@ -386,6 +435,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         t_weight = 2.
         unif_weight = 0.
         cl_weight = 2.
+        # optional losses
         OOD_loss_weight = 0.2
         orth_weight = 0.5
 
@@ -450,12 +500,14 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             # for node_name, loss_value in uni_loss_dict.items():
             #     node_wise_losses[node_name]['uni_loss'].append(loss_value.item())
 
-            class_loss_ep_mean += avg_class_loss if avg_class_loss else 0.
-            a_loss_pf_ep_mean += avg_a_loss_pf if avg_a_loss_pf else 0.
-            tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else 0.
-            OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else 0.
-            kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else 0.
-            # uni_loss_ep_mean += avg_uni_loss if avg_uni_loss else 0.
+            class_loss_ep_mean += avg_class_loss if avg_class_loss else -5
+            tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else -5
+            OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else -5
+            kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else -5
+            
+            # modifying the these two because they are not calculated for each node anymore
+            a_loss_ep_mean += a_loss # avg_a_loss_pf if avg_a_loss_pf else -5
+            uni_loss_ep_mean += uni_loss # avg_uni_loss if avg_uni_loss else -5
                 
             total_acc+=acc # DUMMY can be removed
             total_loss+=loss.item()
@@ -468,11 +520,6 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             n_fine_correct += fine_correct.sum().item()
             n_samples += target.size(0)
 
-    test_info['fine_accuracy'] = n_fine_correct/n_samples
-
-    test_info['accuracy'] = total_acc/float(i+1)
-    test_info['loss'] = total_loss/float(i+1)
-
     class_loss_ep_mean /= float(i+1)
     a_loss_pf_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
@@ -480,15 +527,47 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     kernel_orth_loss_ep_mean /= float(i+1)
     uni_loss_ep_mean /= float(i+1)
 
+
+    test_info['fine_accuracy'] = n_fine_correct/n_samples
+    test_info['accuracy'] = total_acc/float(i+1)
+    test_info['loss'] = total_loss/float(i+1)
+    test_info['class_loss (mean over epoch,nodes)'] = class_loss_ep_mean.item() if isinstance(class_loss_ep_mean, torch.Tensor) else class_loss_ep_mean
+    test_info['kernel_orth_loss (mean over epoch,nodes)'] = kernel_orth_loss_ep_mean.item() if isinstance(kernel_orth_loss_ep_mean, torch.Tensor) else kernel_orth_loss_ep_mean
+    test_info['tanh_loss (mean over epoch,nodes)'] = tanh_loss_ep_mean.item() if isinstance(tanh_loss_ep_mean, torch.Tensor) else tanh_loss_ep_mean
+    test_info['OOD_loss (mean over epoch,nodes)'] = OOD_loss_ep_mean.item() if isinstance(OOD_loss_ep_mean, torch.Tensor) else OOD_loss_ep_mean
+    test_info['a_loss (mean over epoch)'] = a_loss_ep_mean.item() if isinstance(a_loss_ep_mean, torch.Tensor) else a_loss_ep_mean
+    test_info['uni_loss (mean over epoch)'] = uni_loss_ep_mean.item() if isinstance(uni_loss_ep_mean, torch.Tensor) else uni_loss_ep_mean
+
+    # Logging to CSV
+    # logging epoch level metrics
+    try:
+        log.create_log(f'epoch_wise_metrics_test', 'epoch', 'fine_accuracy', \
+                        'loss', 'class_loss (mean over epoch,nodes)',\
+                        'kernel_orth_loss (mean over epoch,nodes)',\
+                        'tanh_loss (mean over epoch,nodes)',\
+                        'OOD_loss (mean over epoch,nodes)',\
+                        'a_loss (mean over epoch)',\
+                        'uni_loss (mean over epoch)')
+    except Exception as e:
+        pass
+    log.log_values(f'epoch_wise_metrics_test', epoch if pretrain else (epoch+pretrain_epochs), n_fine_correct/n_samples,
+                   test_info['loss'], test_info['class_loss (mean over epoch,nodes)'],
+                   test_info['kernel_orth_loss (mean over epoch,nodes)'],
+                   test_info['tanh_loss (mean over epoch,nodes)'],
+                   test_info['OOD_loss (mean over epoch,nodes)'],
+                   test_info['a_loss (mean over epoch)'],
+                   test_info['uni_loss (mean over epoch)'])
+
     log_dict = {}
-    # if wandb_logging:
-    log_dict[wandb_log_subdir + "/epoch loss"] = test_info['loss']
-    log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['accuracy']
-    log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
-    log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_pf_ep_mean
-    log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
-    log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
-    log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
+    if wandb_logging:
+        log_dict[wandb_log_subdir + "/epoch loss"] = test_info['loss']
+        log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['fine_accuracy']
+        log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
+        log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
+        log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
+        log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
+        log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_ep_mean
+        log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
     # log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
     # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
     # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
@@ -503,6 +582,10 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
         log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
     if wandb_logging:
+        for node_name in node_wise_losses:
+            for loss_name in node_wise_losses[node_name]:
+                log_dict[wandb_log_subdir + f"/node_wise_{loss_name}/{node_name}"] = np.mean(node_wise_losses[node_name][loss_name])
+
         wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
 
     test_info['node_accuracy'] = node_accuracy
@@ -571,6 +654,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
 
         meanpooled_features1 = F.avg_pool2d(features1, kernel_size=2)
         meanpooled_features2 = F.avg_pool2d(features2, kernel_size=2)
+        # meanpooled_features1 = features1
+        # meanpooled_features2 = features2
         flattened_meanpooled_features1 = flatten_tensor(meanpooled_features1)
         flattened_meanpooled_features2 = flatten_tensor(meanpooled_features2)
         normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)
@@ -631,14 +716,6 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
             # using any below because its a relevant prototype if it has strong connection to any one of the class
             relevant_prototype_kernels = prototype_kernels.weight[(classification_layer.weight > 0.001).any(dim=0)]
             kernel_orth_loss[node.name] = orth_dist(relevant_prototype_kernels)
-
-        # if not finetune:
-        #     # pretraining or general training
-        #     # loss += align_pf_weight * a_loss_pf[node.name] - removing this as align and uniformity are being moved to the `features` instead of `proto_features`
-        #     # loss += t_weight * tanh_loss[node.name]
-        #     # loss += t_weight * tanh_desc_loss[node.name]
-        #     if kernel_orth:
-        #         loss += orth_weight * kernel_orth_loss[node.name]
     
         if not pretrain:
             # finetuning or general training
@@ -678,6 +755,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
     if (not finetune) and train:
         al_and_uni.backward() # gradient for all layers before add_on
     if (not pretrain) and train:
+        # cl_and_tanh_desc.backward() # gradient for all layer after and including add_on
         cl_and_tanh_desc.backward(inputs=features) # gradient for all layer after and including add_on
 
     # calculating overall loss
@@ -695,7 +773,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
                 avg_a_loss_pf = np.mean([node_a_loss_pf.item() for node_name, node_a_loss_pf in a_loss_pf.items()])
             else:
                 avg_a_loss_pf = torch.tensor(-5) # placeholder value
-
+            
+            # dict will be empty if not used, so setting the average to a placeholder vale
             if len(tanh_loss) > 0:
                 avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
             else:

@@ -68,7 +68,7 @@ def run_pipnet(args=None):
     save_args(args, log.metadata_dir)
     print('save_args', (time.time()-time_)/60)
 
-    if args.copy_files:
+    if args.copy_files == 'y':
         time_ = time.time()
         copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
                     extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
