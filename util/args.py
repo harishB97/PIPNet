@@ -147,6 +147,11 @@ def get_args() -> argparse.Namespace:
                         default='y',
                         help='(y/n) Flag that indicates whether to copy all py, sh, ipynb, yaml files.'
                         )
+    parser.add_argument('--tanh_desc',
+                        type=str,
+                        default='y',
+                        help='(y/n) Flag that indicates whether to use tanh descendant loss or not.'
+                        )
     
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:

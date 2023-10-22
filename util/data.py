@@ -632,7 +632,7 @@ class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide): # used 
 
 class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_birds transform2
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
-        return {
+        aug_dict = {
             
             # Modified
             "Identity": (torch.tensor(0.0), False),
@@ -642,7 +642,7 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
             "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True), # has a nearly unnoticeable effect visually
             "Posterize": (8 - (torch.arange(num_bins) / ((num_bins - 1) / 4)).round().int(), False), # prev (8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(), False) had drastic unnatural augmentation
             "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
-            # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
+            "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
 
             # Original - equalize alone commented
             # "Identity": (torch.tensor(0.0), False),
@@ -654,3 +654,5 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide): # used in get_bi
             # "AutoContrast": (torch.tensor(0.0), False), # has a nearly unnoticeable effect visually, but pixel values change quite well
             # # "Equalize": (torch.tensor(0.0), False), # drastic unnatural augmentation
         }
+
+        return aug_dict
