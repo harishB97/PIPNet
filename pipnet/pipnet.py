@@ -49,6 +49,7 @@ class PIPNet(nn.Module):
         for node in self.root.nodes_with_children():
             proto_features[node.name] = dict()
 
+        # # UNCOMMENT FOR USING SOFTMAX
         # proto_features_softmaxed = dict()
         proto_features_concatenated = dict()
         # pooled = defaultdict(dict)
@@ -86,7 +87,7 @@ class PIPNet(nn.Module):
             out[node.name] = torch.cat(each_class_logit, 1) #shape (bs*2, num_classes)
 
         # only pooled here is dict of dict because for applying tanh loss the "pooled" vector for each child should be seperate
-        # if doing SOFTMAX replace proto_features_concatenated with proto_features_softmaxed
+        # MODIFY FOR USING SOFTMAX replace proto_features_concatenated with proto_features_softmaxed
         return features, proto_features_concatenated, pooled, out
     
     def get_joint_distribution(self, out, device='cuda'):

@@ -12,6 +12,8 @@ import random
 from util.data import ModifiedLabelLoader
 import numpy as np
 
+import torch.nn as nn
+
 import wandb
 import textwrap
 
@@ -407,4 +409,50 @@ def get_img_coordinates(img_size, softmaxes_shape, patchsize, skip, h_idx, w_idx
         w_coor_min = img_size-patchsize
 
     return h_coor_min, h_coor_max, w_coor_min, w_coor_max
+
+
+def integrated_gradients(model, input_image, output, num_steps=100):
+    model.eval()
+
+    baseline = torch.zeros((1, 3, 224, 224))  # Assuming input size is 224x224 and 3 channels (RGB)
+
+    gradients = torch.autograd.grad(outputs=output, inputs=input_image, retain_graph=True)[0]
+
+    integrated_gradients = torch.zeros_like(input_image)
+
+    scaling_factor = (input_image - baseline) / num_steps
+
+    for i in range(1, num_steps + 1):
+        step_input = baseline + i * scaling_factor
+        step_gradients = torch.autograd.grad(outputs=model(step_input), inputs=step_input, retain_graph=True)[0]
+        integrated_gradients += step_gradients
+
+    integrated_gradients /= num_steps
+
+    return integrated_gradients
+
+
+def get_img_coordinates_using_gradients(model, input_image, output, patch_size=32, num_steps=100):
+
+    attributions = integrated_gradients(model, input_image, output, num_steps)
+
+    grayscale_attributions = torch.sum(attributions, dim=1, keepdim=True)
+
+    best_patch_coords = None
+    best_score = None
+
+    for i in range(grayscale_attributions.size(2) - patch_size + 1):
+        for j in range(grayscale_attributions.size(3) - patch_size + 1):
+            h_coord_min, h_coord_max, w_coord_min, w_coord_max = i, i+patch_size, j, j+patch_size
+            patch = grayscale_attributions[:, :, h_coord_min:h_coord_max, w_coord_min:w_coord_max]
+            
+            score = torch.sum(patch)
+            
+            if best_score is None or score > best_score:
+                best_score = score
+                best_patch_coords = (h_coord_min, h_coord_max, w_coord_min, w_coord_max)
+
+    return best_patch_coords
+
+
     
