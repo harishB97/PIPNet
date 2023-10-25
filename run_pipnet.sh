@@ -2,7 +2,7 @@
 
 #SBATCH --account=ml4science2
 #SBATCH --partition=a100_normal_q
-#SBATCH --time=8:00:00 
+#SBATCH --time=6:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH -o ./SLURM/slurm-%j.out
@@ -25,7 +25,7 @@ which python
 # 059-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_nprotos=4per-desc_unit-sphere_finetune=5_no-meanpool_no-softmax_AW=3-TW=2-UW=3-CW=2
 # epoch to 60, pretrain to 60, freeze_epochs 10, finetune to 5, viz topk commented at all places, print weights commented, prototype purity commented
 # pretraining-check-001-AL=3_UW=6
-python main.py --log_dir './runs/060-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_nprotos=4per-desc_unit-sphere_finetune=5_no-meanpool_no-softmax_AW=3-TW=2-UW=3-CW=2_batch=32' \
+python main.py --log_dir './runs/061-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_nprotos=4per-desc_unit-sphere_finetune=5_no-meanpool_with-softmax_AW=3-TW=2-UW=3-CW=2_batch=32' \
                --dataset CUB-18-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \

@@ -49,8 +49,8 @@ class PIPNet(nn.Module):
         for node in self.root.nodes_with_children():
             proto_features[node.name] = dict()
 
-        # # UNCOMMENT FOR USING SOFTMAX
-        # proto_features_softmaxed = dict()
+        # UNCOMMENT FOR USING SOFTMAX
+        proto_features_softmaxed = dict()
         proto_features_concatenated = dict()
         # pooled = defaultdict(dict)
         pooled = dict()
@@ -67,13 +67,13 @@ class PIPNet(nn.Module):
             # concatenate the cosine distances of two children before doing softmax
             proto_features_concatenated[node.name] = torch.cat([proto_features[node.name][child_node.name] for child_node in node.children], 1) # 1 is the channel dimension
 
-            # # UNCOMMENT FOR USING SOFTMAX - This block is only required if doing softmax
-            # # softmax on the concatenated cosine distances
-            # proto_features_softmaxed[node.name] = self._softmax(proto_features_concatenated[node.name])
-            # # split after softmax to feed it into maxpool and classification layer
-            # proto_features_split = torch.split(proto_features_softmaxed[node.name], [node.num_protos_per_child[child_node.name] for child_node in node.children], dim=1)
-            # for idx, child_node in enumerate(node.children):
-            #     proto_features[node.name][child_node.name] = proto_features_split[idx]
+            # UNCOMMENT FOR USING SOFTMAX - This block is only required if doing softmax
+            # softmax on the concatenated cosine distances
+            proto_features_softmaxed[node.name] = self._softmax(proto_features_concatenated[node.name])
+            # split after softmax to feed it into maxpool and classification layer
+            proto_features_split = torch.split(proto_features_softmaxed[node.name], [node.num_protos_per_child[child_node.name] for child_node in node.children], dim=1)
+            for idx, child_node in enumerate(node.children):
+                proto_features[node.name][child_node.name] = proto_features_split[idx]
 
             for child_node in node.children:
                 pooled[node.name][child_node.name] = self._pool(proto_features[node.name][child_node.name])
@@ -88,7 +88,7 @@ class PIPNet(nn.Module):
 
         # only pooled here is dict of dict because for applying tanh loss the "pooled" vector for each child should be seperate
         # MODIFY FOR USING SOFTMAX replace proto_features_concatenated with proto_features_softmaxed
-        return features, proto_features_concatenated, pooled, out
+        return features, proto_features_softmaxed, pooled, out
     
     def get_joint_distribution(self, out, device='cuda'):
         
