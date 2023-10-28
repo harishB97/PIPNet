@@ -15,13 +15,14 @@ class Node:
         self.label = label
 
     def set_num_protos(self, num_protos_per_descendant):
-        self.num_protos_per_child = {}
-        for child in self.children:
-            if child.is_leaf():
-                self.num_protos_per_child[child.name] = num_protos_per_descendant
-            else:
-                self.num_protos_per_child[child.name] = child.num_descendents() * num_protos_per_descendant
+        # self.num_protos_per_child = {}
+        # for child in self.children:
+        #     if child.is_leaf():
+        #         self.num_protos_per_child[child.name] = num_protos_per_descendant
+        #     else:
+        #         self.num_protos_per_child[child.name] = child.num_descendents() * num_protos_per_descendant
 
+        self.num_protos = self.num_descendents() * num_protos_per_descendant
 
     def add_children(self, names, labels = None):
         if type(names) is not list:

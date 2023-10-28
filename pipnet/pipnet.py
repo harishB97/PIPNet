@@ -29,12 +29,12 @@ class PIPNet(nn.Module):
         # self._num_prototypes = num_prototypes # this is only the minimum number of protos per node, might vary for each node
         self._net = feature_net
         # self._add_on = add_on_layers
-        for node_and_child_name in add_on_layers:
-            setattr(self, '_'+node_and_child_name+'_add_on', add_on_layers[node_and_child_name])
-            setattr(self, '_'+node_and_child_name+'_num_protos', add_on_layers[node_and_child_name].weight.shape[0])
+        for node_name in add_on_layers:
+            setattr(self, '_'+node_name+'_add_on', add_on_layers[node_name])
+            setattr(self, '_'+node_name+'_num_protos', add_on_layers[node_name].weight.shape[0])
         self._pool = pool_layer
-        for node_and_child_name in classification_layers:
-            setattr(self, '_'+node_and_child_name+'_classification', classification_layers[node_and_child_name])
+        for node_name in classification_layers:
+            setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
         # self._classification = classification_layers
         self._multiplier = nn.Parameter(torch.ones((1,),requires_grad=True)) # this can directly be set to 2.0 and requires_grad=False, not sure why its not done
         # self._multiplier = classification_layers.normalization_multiplier 
@@ -44,65 +44,28 @@ class PIPNet(nn.Module):
 
     
     def forward(self, xs,  inference=False):
-        # proto_features = defaultdict(dict)
-        proto_features = dict()
-        for node in self.root.nodes_with_children():
-            proto_features[node.name] = dict()
-
-        # UNCOMMENT FOR USING SOFTMAX
-        # proto_features_softmaxed = dict()
-        proto_features_concatenated = dict()
-        # pooled = defaultdict(dict)
-        pooled = dict()
-        for node in self.root.nodes_with_children():
-            pooled[node.name] = dict()
-        out = dict() #defaultdict(dict)
-
         features = self._net(xs) 
+        proto_features = {}
+        pooled = {}
+        out = {}
         for node in self.root.nodes_with_children():
-            for child_node in node.children:
-                # this is cosine distance, since UnitConv2D normalized kernel and input to unit length vectors
-                proto_features[node.name][child_node.name] = getattr(self, '_'+node.name+'_'+child_node.name+'_add_on')(features) 
+            proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
+            # proto_features[node.name] = self._softmax(proto_features[node.name])
+            pooled[node.name] = self._pool(proto_features[node.name])
+            if inference:
+                pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
+            out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
 
-            # concatenate the cosine distances of two children before doing softmax
-            proto_features_concatenated[node.name] = torch.cat([proto_features[node.name][child_node.name] for child_node in node.children], 1) # 1 is the channel dimension
-
-            # # UNCOMMENT FOR USING SOFTMAX - This block is only required if doing softmax
-            # # softmax on the concatenated cosine distances
-            # proto_features_softmaxed[node.name] = self._softmax(proto_features_concatenated[node.name])
-            # # split after softmax to feed it into maxpool and classification layer
-            # proto_features_split = torch.split(proto_features_softmaxed[node.name], [node.num_protos_per_child[child_node.name] for child_node in node.children], dim=1)
-            # for idx, child_node in enumerate(node.children):
-            #     proto_features[node.name][child_node.name] = proto_features_split[idx]
-
-            for child_node in node.children:
-                pooled[node.name][child_node.name] = self._pool(proto_features[node.name][child_node.name])
-                if inference:
-                    #during inference, ignore all prototypes that have 0.1 similarity or lower
-                    pooled[node.name][child_node.name] = torch.where(pooled[node.name][child_node.name] < 0.1, 0., pooled[node.name][child_node.name])  
-
-            each_class_logit = []
-            for child_node in node.children:
-                each_class_logit.append(getattr(self, '_'+node.name+'_'+child_node.name+'_classification')(pooled[node.name][child_node.name])) #shape (bs*2, 1)
-            out[node.name] = torch.cat(each_class_logit, 1) #shape (bs*2, num_classes)
-
-        # only pooled here is dict of dict because for applying tanh loss the "pooled" vector for each child should be seperate
-        # MODIFY FOR USING SOFTMAX replace proto_features_concatenated with proto_features_softmaxed
-        return features, proto_features_concatenated, pooled, out
+        return features, proto_features, pooled, out
     
     def get_joint_distribution(self, out, device='cuda'):
-        
         batch_size = out['root'].size(0)
-
         #top_level = torch.nn.functional.softmax(self.root.logits,1)            
         top_level = out['root']
         bottom_level = self.root.distribution_over_furthest_descendents(batch_size, out)    
-
         names = self.root.unwrap_names_of_joint(self.root.names_of_joint_distribution())
         idx = np.argsort(names)
-
         bottom_level = bottom_level[:,idx]        
-        
         return top_level, bottom_level
     
     def get_classification_layers(self):
@@ -197,16 +160,15 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     # change 0 to num_prototypes for having minimum num of protos at any node
     print((10*'-')+f'Prototypes per descendant: {args.num_protos_per_descendant}'+(10*'-'))
     for node in parent_nodes:
-        # add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=max(20, (node.num_descendents() * prototypes_per_descendant)), \
-        #                                      kernel_size=1, stride = 1, padding=0, bias=True)
-        # proto_count = max(0, (node.num_descendents() * prototypes_per_descendant))
-        # print(f'Assigned {proto_count} protos to node {node.name}')
+        add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
+                                             kernel_size=1, stride = 1, padding=0, bias=True)
+        print(f'Assigned {node.num_protos} protos to node {node.name}')
 
-        for child_node in node.children:
-            add_on_layers[node.name+'_'+child_node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, \
-                                                                        out_channels=node.num_protos_per_child[child_node.name], \
-                                                                        kernel_size=1, stride = 1, padding=0, bias=False) # is bias required ??, prev True now set to False for unit length conv2d
-            print(f'Assigned {node.num_protos_per_child[child_node.name]} protos to child {child_node.name} of node {node.name}')
+        # for child_node in node.children:
+        #     add_on_layers[node.name+'_'+child_node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, \
+        #                                                                 out_channels=node.num_protos_per_child[child_node.name], \
+        #                                                                 kernel_size=1, stride = 1, padding=0, bias=False) # is bias required ??, prev True now set to False for unit length conv2d
+        #     print(f'Assigned {node.num_protos_per_child[child_node.name]} protos to child {child_node.name} of node {node.name}')
 
 
     # add_on_layers = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes * len(parent_nodes), kernel_size=1, stride = 1, padding=0, bias=True)
@@ -223,11 +185,11 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
 
     classification_layers = {}
     for node in parent_nodes:
-        # classification_layers[node.name] = NonNegLinear(max(20, (node.num_descendents() * prototypes_per_descendant)), \
-        #                                                 node.num_children(), bias=True if args.bias else False)
-        for child_node in node.children:
-            classification_layers[node.name+'_'+child_node.name] = NonNegLinear(node.num_protos_per_child[child_node.name], \
-                                                                                1, bias=True if args.bias else False)
+        classification_layers[node.name] = NonNegLinear(node.num_protos, node.num_children(),\
+                                                        bias=True if args.bias else False)
+        # for child_node in node.children:
+        #     classification_layers[node.name+'_'+child_node.name] = NonNegLinear(node.num_protos_per_child[child_node.name], \
+        #                                                                         1, bias=True if args.bias else False)
         
         
     return features, add_on_layers, pool_layer, classification_layers, num_prototypes
