@@ -25,8 +25,8 @@ from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_t
 import time
 import wandb
 
-# Set CUDA_LAUNCH_BLOCKING=1
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# # Set CUDA_LAUNCH_BLOCKING=1
+# os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 
 def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
@@ -292,7 +292,8 @@ def run_pipnet(args=None):
         train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
                                             scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
                                             pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                            tanh_desc=args.tanh_desc == 'y', wandb_run=wandb_run, log=log)
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                            wandb_run=wandb_run, log=log)
         # wandb_run.log(log_dict, step=epoch)
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
@@ -398,13 +399,15 @@ def run_pipnet(args=None):
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
-                                          tanh_desc=args.tanh_desc == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+                                          tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                           wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                        tanh_desc=args.tanh_desc == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+                                        tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                         wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
         lrs_net+=train_info['lrs_net']

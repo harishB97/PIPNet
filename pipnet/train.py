@@ -19,7 +19,7 @@ import gc
 
 OOD_LABEL = -1
 
-def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = train_loader.dataset
@@ -149,7 +149,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         
         loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
-                           criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc)
+                           criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni)
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
@@ -381,7 +381,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     return train_info, log_dict
 
 
-def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -485,7 +485,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             
             loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
             calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
-                           criterion, test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, train=False)
+                           criterion, test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, train=False)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
@@ -632,7 +632,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 
 def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
-                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, train=True):
+                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, train=True):
     batch_names = [label2name[y.item()] for y in ys]
 
     al_and_uni = 0
@@ -651,7 +651,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
     features1, features2 = features.chunk(2)
 
 
-    if not finetune:
+    if (not finetune) and align and uni:
         flattened_features1 = flatten_tensor(features1)
         flattened_features2 = flatten_tensor(features2)
         normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)

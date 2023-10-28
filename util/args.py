@@ -152,6 +152,16 @@ def get_args() -> argparse.Namespace:
                         default='y',
                         help='(y/n) Flag that indicates whether to use tanh descendant loss or not.'
                         )
+    parser.add_argument('--align',
+                        type=str,
+                        default='y',
+                        help='(y/n) Flag that indicates whether to use align loss or not.'
+                        )
+    parser.add_argument('--uni',
+                        type=str,
+                        default='y',
+                        help='(y/n) Flag that indicates whether to use uni loss or not.'
+                        )
     
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:
