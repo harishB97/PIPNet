@@ -50,7 +50,7 @@ class PIPNet(nn.Module):
         out = {}
         for node in self.root.nodes_with_children():
             proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
-            # proto_features[node.name] = self._softmax(proto_features[node.name])
+            proto_features[node.name] = self._softmax(proto_features[node.name])
             pooled[node.name] = self._pool(proto_features[node.name])
             if inference:
                 pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
@@ -160,8 +160,8 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     # change 0 to num_prototypes for having minimum num of protos at any node
     print((10*'-')+f'Prototypes per descendant: {args.num_protos_per_descendant}'+(10*'-'))
     for node in parent_nodes:
-        add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
-                                             kernel_size=1, stride = 1, padding=0, bias=True)
+        add_on_layers[node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
+                                             kernel_size=1, stride = 1, padding=0, bias=False) # is bias required ??, prev True now set to False for unit length conv2d
         print(f'Assigned {node.num_protos} protos to node {node.name}')
 
         # for child_node in node.children:
