@@ -10,6 +10,17 @@ from util.node import Node
 import numpy as np
 from collections import defaultdict
 
+class GumbelSoftmax(nn.Module):
+    def __init__(self, tau=1, hard=False, dim=-1):
+        super(GumbelSoftmax, self).__init__()
+        self.tau = tau
+        self.hard = hard
+        self.dim = dim
+
+    def forward(self, logits):
+        return F.gumbel_softmax(logits, tau=self.tau, hard=self.hard, dim=self.dim)
+
+
 class PIPNet(nn.Module):
     def __init__(self,
                  num_classes: int,
@@ -38,9 +49,14 @@ class PIPNet(nn.Module):
         # self._classification = classification_layers
         self._multiplier = nn.Parameter(torch.ones((1,),requires_grad=True)) # this can directly be set to 2.0 and requires_grad=False, not sure why its not done
         # self._multiplier = classification_layers.normalization_multiplier 
-        self._softmax = nn.Softmax(dim=1)
+        if args.softmax == 'y':
+            self._softmax = nn.Softmax(dim=1)
+        elif args.gumbel_softmax == 'y':
+            self._gumbel_softmax = GumbelSoftmax(tau=args.gs_tau, hard=False, dim=1)
         self._num_parent_nodes = num_parent_nodes # I dont remember why this was added
         self.root = root
+
+        self.args = args
 
     
     def forward(self, xs,  inference=False):
@@ -50,7 +66,10 @@ class PIPNet(nn.Module):
         out = {}
         for node in self.root.nodes_with_children():
             proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
-            proto_features[node.name] = self._softmax(proto_features[node.name])
+            if self.args.softmax == 'y':
+                proto_features[node.name] = self._softmax(proto_features[node.name])
+            elif self.args.gumbel_softmax == 'y':
+                proto_features[node.name] = self._gumbel_softmax(proto_features[node.name])
             pooled[node.name] = self._pool(proto_features[node.name])
             if inference:
                 pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
@@ -112,7 +131,12 @@ class UnitConv2D(nn.Conv2d):
     def forward(self, input):
         normalized_weight = F.normalize(self.weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
         normalized_input = F.normalize(input, p=2, dim=1) # Normalize the input to unit vectors
-        return self._conv_forward(normalized_input, normalized_weight, self.bias)
+
+        if self.bias is not None:
+            normalized_bias = F.normalize(self.bias.data, p=2, dim=0) # Normalize the kernels to unit vectors
+        else:
+            normalized_bias = None
+        return self._conv_forward(normalized_input, normalized_weight, normalized_bias)
 
 def get_network(num_classes: int, args: argparse.Namespace, root=None): 
     features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)
@@ -161,7 +185,7 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     print((10*'-')+f'Prototypes per descendant: {args.num_protos_per_descendant}'+(10*'-'))
     for node in parent_nodes:
         add_on_layers[node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
-                                             kernel_size=1, stride = 1, padding=0, bias=False) # is bias required ??, prev True now set to False for unit length conv2d
+                                             kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d
         print(f'Assigned {node.num_protos} protos to node {node.name}')
 
         # for child_node in node.children:

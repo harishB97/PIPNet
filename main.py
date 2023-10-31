@@ -183,6 +183,7 @@ def run_pipnet(args=None):
             try:
                 optimizer_net.load_state_dict(checkpoint['optimizer_net_state_dict']) 
             except:
+                print('-'*25, 'Unable to load optimizer_net_state_dict')
                 pass
 
             loading_pretrained_only_model = False

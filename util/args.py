@@ -121,6 +121,10 @@ def get_args() -> argparse.Namespace:
                         action='store_true',
                         help='Flag that indicates whether to include a trainable bias in the linear classification layer.'
                         )
+    parser.add_argument('--add_on_bias',
+                        action='store_true',
+                        help='Flag that indicates whether to include a trainable bias to the add_on layer.'
+                        )
     parser.add_argument('--extra_test_image_folder',
                         type=str,
                         default='./experiments',
@@ -162,6 +166,21 @@ def get_args() -> argparse.Namespace:
                         default='y',
                         help='(y/n) Flag that indicates whether to use uni loss or not.'
                         )
+    parser.add_argument('--softmax',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use softmax on the inner product between prototype and latent patch. Takes precedence over gumbel_softmax'
+                        )
+    parser.add_argument('--gumbel_softmax',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use gumbel_softmax on the inner product between prototype and latent patch'
+                        )
+    parser.add_argument('--gs_tau',
+                        type=float,
+                        default=0.5,
+                        help='Temperature to use with gumbel softmax')
+
     
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:
