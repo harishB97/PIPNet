@@ -19,7 +19,7 @@ import gc
 
 OOD_LABEL = -1
 
-def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = train_loader.dataset
@@ -84,9 +84,9 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     print("Number of parameters that require gradient: ", count_param, flush=True)
 
     if pretrain:
-        # align_pf_weight = (epoch/nr_epochs)*1.
+        align_pf_weight = (epoch/nr_epochs)*1.
         # unif_weight = 0.5
-        align_pf_weight = 3.
+        align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
         cl_weight = 0.
@@ -94,9 +94,9 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         OOD_loss_weight = 0.
         orth_weight = 0.1
     else:
-        # align_pf_weight = 5. 
+        align_pf_weight = 5. 
         # unif_weight = 2. # 0.
-        align_pf_weight = 3. 
+        align_weight = 3. 
         unif_weight = 3. # 0.
         t_weight = 2.
         cl_weight = 2.
@@ -105,7 +105,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         orth_weight = 0.1
 
 
-    print("Align weight: ", align_pf_weight, "Unif weight: ", unif_weight, ", Tanh-desc weight: ", t_weight, "Class weight:", cl_weight, "OOD_loss weight", OOD_loss_weight, flush=True)
+    print("Align weight: ", align_weight, "Align (CARL) weight: ", align_pf_weight, "Unif weight: ", unif_weight, ", Tanh-desc weight: ", t_weight, "Class weight:", cl_weight, "OOD_loss weight", OOD_loss_weight, flush=True)
     print("Pretrain?", pretrain, "Finetune?", finetune, flush=True)
 
     # maps, node_name -> loss_name -> list_of_loss_values_corresponding_to_each_step
@@ -148,8 +148,11 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         features, proto_features, pooled, out = net(xs)
         
         loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
-            calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
-                           criterion, train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni)
+            calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+                            t_weight=t_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
+                            net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
+                           criterion=criterion, train_iter=train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf)
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
@@ -381,7 +384,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     return train_info, log_dict
 
 
-def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -426,9 +429,9 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     OOD_loss_required = True if test_loader_OOD else False
 
     if pretrain:
-        # align_pf_weight = (epoch/nr_epochs)*1.
+        align_pf_weight = (epoch/nr_epochs)*1.
         # unif_weight = 0.5
-        align_pf_weight = 3.
+        align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
         cl_weight = 0.
@@ -436,9 +439,9 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         OOD_loss_weight = 0.
         orth_weight = 0.1
     else:
-        # align_pf_weight = 5. 
+        align_pf_weight = 5. 
         # unif_weight = 2. # 0.
-        align_pf_weight = 3. 
+        align_weight = 3. 
         unif_weight = 3. # 0.
         t_weight = 2.
         cl_weight = 2.
@@ -482,10 +485,13 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             
             # Perform a forward pass through the network
             features, proto_features, pooled, out = net(xs)
-            
+
             loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
-            calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, orth_weight, net.module._multiplier, pretrain, finetune, \
-                           criterion, test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, train=False)
+            calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+                            t_weight=t_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
+                            net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
+                           criterion=criterion, train_iter=test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, train=False)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
@@ -630,9 +636,9 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     return test_info, log_dict
 
 
-def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, \
+def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
-                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, train=True):
+                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, train=True):
     batch_names = [label2name[y.item()] for y in ys]
 
     al_and_uni = 0
@@ -644,7 +650,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
     OOD_loss = {}
     kernel_orth_loss = {}
     uni_loss = {}
-    # tanh_desc_loss = {}
+    tanh_desc_loss = {}
 
     losses_used = []
 
@@ -672,7 +678,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
         #             + uniform_loss(normalized_flattened_meanpooled_features2)) / 2.
 
         # loss += align_pf_weight * a_loss
-        al_and_uni += align_pf_weight * a_loss
+        al_and_uni += align_weight * a_loss
         losses_used.append('AL')
         # loss += unif_weight * uni_loss
         al_and_uni += unif_weight * uni_loss
@@ -692,6 +698,17 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
 
         node_logits = out[node.name][children_idx]
 
+        if (not pretrain) and (not finetune) and align_pf:
+            # CARL align loss
+            pf1, pf2 = proto_features[node.name][children_idx].chunk(2)
+            embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
+            embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
+            a_loss_pf[node.name] = (align_loss(embv1, embv2.detach()) \
+                                    + align_loss(embv2, embv1.detach())) / 2.
+            loss += align_pf_weight * a_loss_pf[node.name]
+            if not 'AL_PF' in losses_used:
+                losses_used.append('AL_PF')
+
         if (not pretrain) and (not finetune) and tanh_desc:
             # tanh loss corresponding to every descendant species
             tanh_for_each_descendant = []
@@ -709,10 +726,10 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
                         descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                             + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
                         tanh_for_each_descendant.append(descendant_tanh_loss)
-            tanh_loss[node.name] = torch.mean(torch.stack(tanh_for_each_descendant), dim=0)
+            tanh_desc_loss[node.name] = torch.mean(torch.stack(tanh_for_each_descendant), dim=0)
 
             # loss += t_weight * tanh_loss[node.name]
-            cl_and_tanh_desc += t_weight * tanh_loss[node.name]
+            cl_and_tanh_desc += t_weight * tanh_desc_loss[node.name]
             if not 'TANH_DESC' in losses_used:
                 losses_used.append('TANH_DESC')
         
@@ -766,7 +783,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_pf_weig
     #     cl_and_tanh_desc.backward(inputs=features) # gradient for all layer after and including add_on
 
     # calculating overall loss
-    loss = al_and_uni + cl_and_tanh_desc
+    loss += al_and_uni + cl_and_tanh_desc
 
     acc=0.
     # if not pretrain:

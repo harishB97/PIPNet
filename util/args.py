@@ -166,6 +166,11 @@ def get_args() -> argparse.Namespace:
                         default='y',
                         help='(y/n) Flag that indicates whether to use uni loss or not.'
                         )
+    parser.add_argument('--align_pf',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use align_pf (CARL style align_pf) loss or not.'
+                        )
     parser.add_argument('--softmax',
                         type=str,
                         default='n',
@@ -180,6 +185,21 @@ def get_args() -> argparse.Namespace:
                         type=float,
                         default=0.5,
                         help='Temperature to use with gumbel softmax')
+    parser.add_argument('--multiply_cs_softmax',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to multiply cosine similarity and softmax. Must have anyone of softmax or gumbel_softmax turned ON'
+                        )
+    parser.add_argument('--unitconv2d',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use UnitConv2D or nn.Conv2D between prototypes and features'
+                        )
+    parser.add_argument('--focal',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use focal similarity'
+                        )
 
     
     args = parser.parse_args()

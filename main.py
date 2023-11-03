@@ -61,6 +61,9 @@ def run_pipnet(args=None):
     args = args or get_args()
     assert args.batch_size > 1
 
+    if (args.align_pf == 'y') and not (args.softmax == 'y' or args.gumbel_softmax == 'y'):
+        raise Exception('Use align_pf loss only when softmax or gumbel softmax is turned on')
+ 
     # Create a logger
     log = Log(args.log_dir)
     print("Log dir: ", args.log_dir, flush=True)
@@ -293,7 +296,7 @@ def run_pipnet(args=None):
         train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
                                             scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
                                             pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
                                             wandb_run=wandb_run, log=log)
         # wandb_run.log(log_dict, step=epoch)
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
@@ -400,14 +403,14 @@ def run_pipnet(args=None):
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
-                                          tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                          tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
                                            wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                        tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y',\
+                                        tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
                                          wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')

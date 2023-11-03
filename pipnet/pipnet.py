@@ -10,6 +10,15 @@ from util.node import Node
 import numpy as np
 from collections import defaultdict
 
+def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
+    normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
+    normalized_input = F.normalize(in_features, p=2, dim=1) # Normalize the input to unit vectors
+    if bias is not None:
+        normalized_bias = F.normalize(bias.data, p=2, dim=0) # Normalize the kernels to unit vectors
+    else:
+        normalized_bias = None
+    return F.conv2d(normalized_input, normalized_weight, normalized_bias, stride=stride, padding=padding)
+
 class GumbelSoftmax(nn.Module):
     def __init__(self, tau=1, hard=False, dim=-1):
         super(GumbelSoftmax, self).__init__()
@@ -44,6 +53,10 @@ class PIPNet(nn.Module):
             setattr(self, '_'+node_name+'_add_on', add_on_layers[node_name])
             setattr(self, '_'+node_name+'_num_protos', add_on_layers[node_name].weight.shape[0])
         self._pool = pool_layer
+        self._avg_pool = nn.Sequential(
+                nn.AdaptiveAvgPool2d(output_size=(1,1)), #outputs (bs, ps,1,1)
+                nn.Flatten() #outputs (bs, ps)
+                ) 
         for node_name in classification_layers:
             setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
         # self._classification = classification_layers
@@ -58,19 +71,37 @@ class PIPNet(nn.Module):
 
         self.args = args
 
+        if (args.multiply_cs_softmax == 'y') and not (args.softmax == 'y' or args.gumbel_softmax == 'y'):
+            raise Exception('Use either softmax or gumbel softmax when using multiply_cs_softmax')
+
     
     def forward(self, xs,  inference=False):
         features = self._net(xs) 
         proto_features = {}
+        proto_features_cs = {}
+        proto_features_softmaxed = {}
         pooled = {}
         out = {}
         for node in self.root.nodes_with_children():
             proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
+
             if self.args.softmax == 'y':
-                proto_features[node.name] = self._softmax(proto_features[node.name])
+                proto_features_softmaxed[node.name] = self._softmax(proto_features[node.name])
+                proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
             elif self.args.gumbel_softmax == 'y':
-                proto_features[node.name] = self._gumbel_softmax(proto_features[node.name])
+                proto_features_softmaxed[node.name] = self._gumbel_softmax(proto_features[node.name])
+                proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
+
+            if self.args.multiply_cs_softmax == 'y':
+                prototypes = getattr(self, '_'+node.name+'_add_on')
+                cosine_similarity = functional_UnitConv2D(features, prototypes.weight, prototypes.bias)
+                proto_features[node.name] = cosine_similarity * proto_features_softmaxed[node.name]
+
             pooled[node.name] = self._pool(proto_features[node.name])
+
+            if self.args.focal == 'y':
+                pooled[node.name] = pooled[node.name] - self._avg_pool(proto_features[node.name])
+
             if inference:
                 pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
             out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
@@ -149,43 +180,23 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     else:
         raise Exception('other base architecture NOT implemented')
     
-    # original
-    # if args.num_features == 0:
-    #     num_prototypes = first_add_on_layer_in_channels
-    #     print("Number of prototypes: ", num_prototypes, flush=True)
-    #     add_on_layers = nn.Sequential(
-    #         nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
-    # )
-    # else:
-    #     num_prototypes = args.num_features
-    #     print("Number of prototypes set from", first_add_on_layer_in_channels, "to", num_prototypes,". Extra 1x1 conv layer added. Not recommended.", flush=True)
-    #     add_on_layers = nn.Sequential(
-    #         nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True), 
-    #         nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
-    # )
         
     if args.num_features == 0:
         num_prototypes = first_add_on_layer_in_channels
     else:
         num_prototypes = args.num_features
     print("Number of prototypes: ", num_prototypes, flush=True)
-
-    # parent_nodes = root.nodes_with_children()
-    # add_on_layers = {}
-    # for node in parent_nodes:
-    #     add_on_layers[node.name] = nn.Sequential(
-    #                                             nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=num_prototypes, kernel_size=1, stride = 1, padding=0, bias=True), 
-    #                                             nn.Softmax(dim=1), #softmax over every prototype for each patch, such that for every location in image, sum over prototypes is 1                
-    #                                         )
         
     parent_nodes = root.nodes_with_children()
     add_on_layers = {}
-    # prototypes_per_descendant = args.num_protos_per_descendant
-    # change 0 to num_prototypes for having minimum num of protos at any node
     print((10*'-')+f'Prototypes per descendant: {args.num_protos_per_descendant}'+(10*'-'))
     for node in parent_nodes:
-        add_on_layers[node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
-                                             kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d
+        if args.unitconv2d == 'y':
+            add_on_layers[node.name] = UnitConv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
+                                                kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d
+        else:
+            add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
+                                                kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d
         print(f'Assigned {node.num_protos} protos to node {node.name}')
 
         # for child_node in node.children:
@@ -201,11 +212,6 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
                 nn.AdaptiveMaxPool2d(output_size=(1,1)), #outputs (bs, ps,1,1)
                 nn.Flatten() #outputs (bs, ps)
                 ) 
-    
-    # if args.bias:
-    #     classification_layer = NonNegLinear(num_prototypes, num_classes, bias=True)
-    # else:
-    #     classification_layer = NonNegLinear(num_prototypes, num_classes, bias=False)
 
     classification_layers = {}
     for node in parent_nodes:
