@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from features.resnet_features import resnet18_features, resnet34_features, resnet50_features, resnet50_features_inat, resnet101_features, resnet152_features
-from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features 
+from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features, convnext_tiny_7_features 
 import torch
 from torch import Tensor
 from util.node import Node
@@ -129,7 +129,8 @@ base_architecture_to_features = {'resnet18': resnet18_features,
                                  'resnet101': resnet101_features,
                                  'resnet152': resnet152_features,
                                  'convnext_tiny_26': convnext_tiny_26_features,
-                                 'convnext_tiny_13': convnext_tiny_13_features}
+                                 'convnext_tiny_13': convnext_tiny_13_features,
+                                 'convnext_tiny_7': convnext_tiny_7_features}
 
 # adapted from https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
 class NonNegLinear(nn.Module):
@@ -142,9 +143,12 @@ class NonNegLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.weight = nn.Parameter(torch.empty((out_features, in_features), **factory_kwargs))
+        torch.nn.init.normal_(self.weight, mean=1.0,std=0.1)
+
         self.normalization_multiplier = nn.Parameter(torch.ones((1,),requires_grad=True))
         if bias:
             self.bias = nn.Parameter(torch.empty(out_features, **factory_kwargs))
+            torch.nn.init.constant_(self.bias, val=0.)
         else:
             self.register_parameter('bias', None)
 
@@ -215,8 +219,23 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
 
     classification_layers = {}
     for node in parent_nodes:
-        classification_layers[node.name] = NonNegLinear(node.num_protos, node.num_children(),\
-                                                        bias=True if args.bias else False)
+        classification_layers[node.name] = NonNegLinear(node.num_protos, node.num_children(), bias=True if args.bias else False)
+        
+        if args.protopool == 'n':
+            classification_layers[node.name].weight.requires_grad = False
+            start_idx = 0
+            # element-wise disabling gradient is not possible
+            # so setting the values to negative so during training they will become zero because of relu
+            # and once relu becomes zero its gradients also become zero and they wont get trained
+            for child_node in node.children:
+                child_label = node.children_to_labels[child_node.name]
+                end_idx = start_idx + node.num_protos_per_child[child_node.name]
+                classification_layers[node.name].weight[child_label, :start_idx] = -1.0
+                classification_layers[node.name].weight[child_label, end_idx:] = -1.0
+                start_idx = end_idx
+
+            classification_layers[node.name].weight.requires_grad = True
+
         # for child_node in node.children:
         #     classification_layers[node.name+'_'+child_node.name] = NonNegLinear(node.num_protos_per_child[child_node.name], \
         #                                                                         1, bias=True if args.bias else False)

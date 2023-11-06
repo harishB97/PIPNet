@@ -19,7 +19,7 @@ import gc
 
 OOD_LABEL = -1
 
-def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = train_loader.dataset
@@ -62,6 +62,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     a_loss_pf_ep_mean = 0.
     a_loss_ep_mean = 0.
     tanh_loss_ep_mean = 0.
+    minmaximize_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
     kernel_orth_loss_ep_mean = 0.
     uni_loss_ep_mean = 0.
@@ -89,6 +90,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
+        mm_weight = 0.
         cl_weight = 0.
         # optional losses
         OOD_loss_weight = 0.
@@ -99,6 +101,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         align_weight = 3. 
         unif_weight = 3. # 0.
         t_weight = 2.
+        mm_weight = 2.
         cl_weight = 2.
         # optional losses
         OOD_loss_weight = 0.2
@@ -116,6 +119,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         node_wise_losses[node.name]['class_loss'] = []
         # node_wise_losses[node.name]['a_loss'] = []
         node_wise_losses[node.name]['tanh_loss'] = []
+        node_wise_losses[node.name]['minmaximize_loss'] = []
         node_wise_losses[node.name]['OOD_loss'] = []
         node_wise_losses[node.name]['kernel_orth_loss'] = []
         # node_wise_losses[node.name]['uni_loss'] = []
@@ -147,12 +151,12 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Perform a forward pass through the network
         features, proto_features, pooled, out = net(xs)
         
-        loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
+        loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
             calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
-                            t_weight=t_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
+                            t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf)
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize)
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
@@ -183,6 +187,9 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # for node_name, loss_value in a_loss_pf_dict.items():
         #     node_wise_losses[node_name]['a_loss'].append(loss_value.item())
 
+        for node_name, loss_value in minmaximize_loss_dict.items():
+            node_wise_losses[node_name]['minmaximize_loss'].append(loss_value.item())
+
         for node_name, loss_value in tanh_loss_dict.items():
             node_wise_losses[node_name]['tanh_loss'].append(loss_value.item())
 
@@ -204,6 +211,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # to be modified, not all avg losses will be none if they're not used, some use integer placeholder value, to be modified accordingly
         class_loss_ep_mean += avg_class_loss if avg_class_loss else -5
         tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else -5
+        minmaximize_loss_ep_mean += avg_minmaximize_loss if avg_minmaximize_loss else -5
         OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else -5
         kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else -5
 
@@ -271,6 +279,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         
     class_loss_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
+    minmaximize_loss_ep_mean /= float(i+1)
     OOD_loss_ep_mean /= float(i+1)
     kernel_orth_loss_ep_mean /= float(i+1)
     a_loss_ep_mean /= float(i+1)
@@ -282,6 +291,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     train_info['class_loss (mean over epoch nodes)'] = class_loss_ep_mean.item() if isinstance(class_loss_ep_mean, torch.Tensor) else class_loss_ep_mean
     train_info['kernel_orth_loss (mean over epoch nodes)'] = kernel_orth_loss_ep_mean.item() if isinstance(kernel_orth_loss_ep_mean, torch.Tensor) else kernel_orth_loss_ep_mean
     train_info['tanh_loss (mean over epoch nodes)'] = tanh_loss_ep_mean.item() if isinstance(tanh_loss_ep_mean, torch.Tensor) else tanh_loss_ep_mean
+    train_info['minmaximize_loss (mean over epoch nodes)'] = minmaximize_loss_ep_mean.item() if isinstance(minmaximize_loss_ep_mean, torch.Tensor) else minmaximize_loss_ep_mean
     train_info['OOD_loss (mean over epoch nodes)'] = OOD_loss_ep_mean.item() if isinstance(OOD_loss_ep_mean, torch.Tensor) else OOD_loss_ep_mean
     train_info['a_loss (mean over epoch)'] = a_loss_ep_mean.item() if isinstance(a_loss_ep_mean, torch.Tensor) else a_loss_ep_mean
     train_info['uni_loss (mean over epoch)'] = uni_loss_ep_mean.item() if isinstance(uni_loss_ep_mean, torch.Tensor) else uni_loss_ep_mean
@@ -296,6 +306,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                         'loss', 'class_loss (mean over epoch nodes)',\
                         'kernel_orth_loss (mean over epoch nodes)',\
                         'tanh_loss (mean over epoch nodes)',\
+                        'minmaximize_loss (mean over epoch nodes)',\
                         'OOD_loss (mean over epoch nodes)',\
                         'a_loss (mean over epoch)',\
                         'uni_loss (mean over epoch)',\
@@ -306,6 +317,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                    train_info['loss'], train_info['class_loss (mean over epoch nodes)'],
                    train_info['kernel_orth_loss (mean over epoch nodes)'],
                    train_info['tanh_loss (mean over epoch nodes)'],
+                   train_info['minmaximize_loss (mean over epoch nodes)'],
                    train_info['OOD_loss (mean over epoch nodes)'],
                    train_info['a_loss (mean over epoch)'],
                    train_info['uni_loss (mean over epoch)'],
@@ -318,6 +330,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         log_dict[wandb_log_subdir + "/fine_accuracy"] = train_info['fine_accuracy']
         log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
         log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
+        log_dict[wandb_log_subdir + "/minmaximize_loss"] = minmaximize_loss_ep_mean
         log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
         log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
         log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_ep_mean
@@ -384,7 +397,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     return train_info, log_dict
 
 
-def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -413,6 +426,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     a_loss_pf_ep_mean = 0.
     a_loss_ep_mean = 0.
     tanh_loss_ep_mean = 0.
+    minmaximize_loss_ep_mean = 0.
     OOD_loss_ep_mean = 0.
     kernel_orth_loss_ep_mean = 0.
     uni_loss_ep_mean = 0.
@@ -434,6 +448,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
+        mm_weight = 0.
         cl_weight = 0.
         # optional losses
         OOD_loss_weight = 0.
@@ -444,6 +459,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         align_weight = 3. 
         unif_weight = 3. # 0.
         t_weight = 2.
+        mm_weight = 2.
         cl_weight = 2.
         # optional losses
         OOD_loss_weight = 0.2
@@ -457,6 +473,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         node_wise_losses[node.name]['class_loss'] = []
         node_wise_losses[node.name]['a_loss'] = []
         node_wise_losses[node.name]['tanh_loss'] = []
+        node_wise_losses[node.name]['minmaximize_loss'] = []
         node_wise_losses[node.name]['OOD_loss'] = []
         node_wise_losses[node.name]['kernel_orth_loss'] = []
         node_wise_losses[node.name]['uni_loss'] = []
@@ -486,12 +503,12 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             # Perform a forward pass through the network
             features, proto_features, pooled, out = net(xs)
 
-            loss, class_loss_dict, a_loss, tanh_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
+            loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
             calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
-                            t_weight=t_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
+                            t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, train=False)
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize, train=False)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
@@ -500,6 +517,9 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             
             # for node_name, loss_value in a_loss_pf_dict.items():
             #     node_wise_losses[node_name]['a_loss'].append(loss_value.item())
+
+            for node_name, loss_value in minmaximize_loss_dict.items():
+                node_wise_losses[node_name]['minmaximize_loss'].append(loss_value.item())
 
             for node_name, loss_value in tanh_loss_dict.items():
                 node_wise_losses[node_name]['tanh_loss'].append(loss_value.item())
@@ -515,6 +535,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 
             class_loss_ep_mean += avg_class_loss if avg_class_loss else -5
             tanh_loss_ep_mean += avg_tanh_loss if avg_tanh_loss else -5
+            minmaximize_loss_ep_mean += avg_minmaximize_loss if avg_minmaximize_loss else -5
             OOD_loss_ep_mean += avg_OOD_loss if avg_OOD_loss else -5
             kernel_orth_loss_ep_mean += avg_kernel_orth_loss if avg_kernel_orth_loss else -5
             
@@ -536,6 +557,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     class_loss_ep_mean /= float(i+1)
     a_loss_pf_ep_mean /= float(i+1)
     tanh_loss_ep_mean /= float(i+1)
+    minmaximize_loss_ep_mean /= float(i+1)
     OOD_loss_ep_mean /= float(i+1)
     kernel_orth_loss_ep_mean /= float(i+1)
     uni_loss_ep_mean /= float(i+1)
@@ -547,6 +569,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     test_info['class_loss (mean over epoch nodes)'] = class_loss_ep_mean.item() if isinstance(class_loss_ep_mean, torch.Tensor) else class_loss_ep_mean
     test_info['kernel_orth_loss (mean over epoch nodes)'] = kernel_orth_loss_ep_mean.item() if isinstance(kernel_orth_loss_ep_mean, torch.Tensor) else kernel_orth_loss_ep_mean
     test_info['tanh_loss (mean over epoch nodes)'] = tanh_loss_ep_mean.item() if isinstance(tanh_loss_ep_mean, torch.Tensor) else tanh_loss_ep_mean
+    test_info['minmaximize_loss (mean over epoch nodes)'] = minmaximize_loss_ep_mean.item() if isinstance(minmaximize_loss_ep_mean, torch.Tensor) else minmaximize_loss_ep_mean
     test_info['OOD_loss (mean over epoch nodes)'] = OOD_loss_ep_mean.item() if isinstance(OOD_loss_ep_mean, torch.Tensor) else OOD_loss_ep_mean
     test_info['a_loss (mean over epoch)'] = a_loss_ep_mean.item() if isinstance(a_loss_ep_mean, torch.Tensor) else a_loss_ep_mean
     test_info['uni_loss (mean over epoch)'] = uni_loss_ep_mean.item() if isinstance(uni_loss_ep_mean, torch.Tensor) else uni_loss_ep_mean
@@ -558,6 +581,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                         'loss', 'class_loss (mean over epoch nodes)',\
                         'kernel_orth_loss (mean over epoch nodes)',\
                         'tanh_loss (mean over epoch nodes)',\
+                        'minmaximize_loss (mean over epoch nodes)',\
                         'OOD_loss (mean over epoch nodes)',\
                         'a_loss (mean over epoch)',\
                         'uni_loss (mean over epoch)')
@@ -567,6 +591,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                    test_info['loss'], test_info['class_loss (mean over epoch nodes)'],
                    test_info['kernel_orth_loss (mean over epoch nodes)'],
                    test_info['tanh_loss (mean over epoch nodes)'],
+                   test_info['minmaximize_loss (mean over epoch nodes)'],
                    test_info['OOD_loss (mean over epoch nodes)'],
                    test_info['a_loss (mean over epoch)'],
                    test_info['uni_loss (mean over epoch)'])
@@ -577,6 +602,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         log_dict[wandb_log_subdir + "/fine_accuracy"] = test_info['fine_accuracy']
         log_dict[wandb_log_subdir + "/class_loss"] = class_loss_ep_mean
         log_dict[wandb_log_subdir + "/tanh_loss"] = tanh_loss_ep_mean
+        log_dict[wandb_log_subdir + "/minmaximize_loss"] = minmaximize_loss_ep_mean
         log_dict[wandb_log_subdir + "/OOD_loss"] = OOD_loss_ep_mean
         log_dict[wandb_log_subdir + "/kernel_orth_loss"] = kernel_orth_loss_ep_mean
         log_dict[wandb_log_subdir + "/a_loss_pf"] = a_loss_ep_mean
@@ -636,13 +662,14 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     return test_info, log_dict
 
 
-def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, unif_weight, cl_weight, OOD_loss_weight, \
+def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
-                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, train=True):
+                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, train=True):
     batch_names = [label2name[y.item()] for y in ys]
 
     al_and_uni = 0
     cl_and_tanh_desc = 0
+    mm_loss = 0
     loss = 0
     class_loss = {}
     a_loss_pf = {}
@@ -651,6 +678,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
     kernel_orth_loss = {}
     uni_loss = {}
     tanh_desc_loss = {}
+    minmaximize_loss = {}
 
     losses_used = []
 
@@ -689,14 +717,53 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
 
 
     for node in root.nodes_with_children():
-        children_idx = torch.tensor([name in node.descendents for name in batch_names])
-        batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.descendents]
+        children_idx = torch.tensor([name in node.leaf_descendents for name in batch_names])
+        batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.leaf_descendents]
         node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).cuda()
 
         if len(node_y) == 0:
             continue
 
         node_logits = out[node.name][children_idx]
+
+        if (not pretrain) and (not finetune) and minmaximize:
+            minmaximize_loss[node.name] = 0
+            for child_node in node.children:
+                if child_node.name not in batch_names_coarsest:
+                    continue
+                child_label = node.children_to_labels[child_node.name]
+                list_of_min_wrt_each_proto = []
+                if child_node.is_leaf():
+                    descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
+                    if int(descendant_idx.sum().item()) == 0:
+                        continue
+                    idx_of_protos_relevant_to_child = getattr(net.module, '_'+node.name+'_classification').weight[child_label] > 1e-3
+                    # pooled[node.name].shape => (B, node.num_protos)
+                    # proto_activations_of_descendants.shape => (sum(descendant_idx), num_relevant_protos)
+                    proto_activations_of_descendants = pooled[node.name][descendant_idx][:, idx_of_protos_relevant_to_child]
+                    # min_wrt_each_proto.shape => (num_relevant_protos), since minimum taken over descendant images in the batch
+                    min_wrt_each_proto, _ = torch.min(proto_activations_of_descendants, dim=0)
+                    list_of_min_wrt_each_proto.append(min_wrt_each_proto)
+                else:
+                    for descendant_name in child_node.leaf_descendents:
+                        descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
+                        if int(descendant_idx.sum().item()) == 0:
+                            continue
+                        idx_of_protos_relevant_to_child = getattr(net.module, '_'+node.name+'_classification').weight[child_label] > 1e-3
+                        # pooled[node.name].shape => (B, node.num_protos)
+                        # proto_activations_of_descendants.shape => (sum(descendant_idx), num_relevant_protos)
+                        proto_activations_of_descendants = pooled[node.name][descendant_idx][:, idx_of_protos_relevant_to_child]
+                        # min_wrt_each_proto.shape => (num_relevant_protos), since minimum taken over descendant images in the batch
+                        min_wrt_each_proto, _ = torch.min(proto_activations_of_descendants, dim=0)
+                        list_of_min_wrt_each_proto.append(min_wrt_each_proto)
+                # stack_of_min_wrt_each_proto.shape => (len(child_node.leaf_descendents), num_relevant_protos)
+                    
+                stack_of_min_wrt_each_proto = torch.stack(list_of_min_wrt_each_proto, dim=0)
+                minmaximize_loss[node.name] += -torch.sum(torch.mean(stack_of_min_wrt_each_proto, dim=0))
+
+            mm_loss += mm_weight * minmaximize_loss[node.name]
+            if not 'MM' in losses_used:
+                losses_used.append('MM')
 
         if (not pretrain) and (not finetune) and align_pf:
             # CARL align loss
@@ -720,7 +787,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
                                                         + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
                     tanh_for_each_descendant.append(descendant_tanh_loss)
                 else:
-                    for descendant_name in child_node.descendents:
+                    for descendant_name in child_node.leaf_descendents:
                         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
                         descendant_pooled1, descendant_pooled2 = pooled[node.name][child_node.name][descendant_idx].chunk(2)
                         descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
@@ -744,7 +811,9 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
         if not pretrain:
             # finetuning or general training
             softmax_inputs = torch.log1p(node_logits**net_normalization_multiplier)
-            class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1),node_y) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
+            class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1), \
+                                                node_y, \
+                                                node.weights) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
             # loss += cl_weight * class_loss[node.name]
             cl_and_tanh_desc += cl_weight * class_loss[node.name]
             if not 'CL' in losses_used:
@@ -752,7 +821,7 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
 
             # may not be required
             if OOD_loss_required:
-                not_children_idx = torch.tensor([name not in node.descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
+                not_children_idx = torch.tensor([name not in node.leaf_descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
                 OOD_logits = out[node.name][not_children_idx] # [sum(not_children_idx), node.num_children()]
                 sigmoid_out = F.sigmoid(torch.log1p(OOD_logits**net_normalization_multiplier))
                 OOD_loss[node.name] = F.binary_cross_entropy(sigmoid_out, torch.zeros_like(OOD_logits))
@@ -782,6 +851,19 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
     #     # cl_and_tanh_desc.backward() # gradient for all layer after and including add_on
     #     cl_and_tanh_desc.backward(inputs=features) # gradient for all layer after and including add_on
 
+    if (not pretrain) and (not finetune) and minmaximize and train:
+        layers_requiring_gradients = []
+        for attr in dir(net.module):
+            if attr.endswith('_classification'):
+                layers_requiring_gradients.append(getattr(net.module, attr).weight)
+                if getattr(net.module, attr).bias is not None:
+                    layers_requiring_gradients.append(getattr(net.module, attr).bias)
+            if attr.endswith('_add_on'):
+                layers_requiring_gradients.append(getattr(net.module, attr).weight)
+                if getattr(net.module, attr).bias is not None:
+                    layers_requiring_gradients.append(getattr(net.module, attr).bias)
+        mm_loss.backward(inputs=layers_requiring_gradients)
+
     # calculating overall loss
     loss += al_and_uni + cl_and_tanh_desc
 
@@ -803,6 +885,12 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
                 avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
             else:
                 avg_tanh_loss = torch.tensor(-5) # placeholder value
+
+            # dict will be empty if not used, so setting the average to a placeholder vale
+            if len(minmaximize_loss) > 0:
+                avg_minmaximize_loss = np.mean([node_minmaximize_loss.item() for node_name, node_minmaximize_loss in minmaximize_loss.items()])
+            else:
+                avg_minmaximize_loss = torch.tensor(-5) # placeholder value
                 
             # avg_tanh_loss = np.mean([node_tanh_loss.item() for node_name, node_tanh_loss in tanh_loss.items()])
             # avg_tanh_desc_loss = np.mean([node_tanh_desc_loss.item() for node_name, node_tanh_desc_loss in tanh_desc_loss.items()])
@@ -832,8 +920,8 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
                     f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
-    return loss, class_loss, a_loss, tanh_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_OOD_loss, avg_kernel_orth_loss, acc
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+    return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc
 
 
 def flatten_tensor(x):

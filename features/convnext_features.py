@@ -30,3 +30,11 @@ def convnext_tiny_13_features(pretrained=False, **kwargs):
         model = replace_convlayers_convnext(model, 300) 
     
     return model
+
+def convnext_tiny_7_features(pretrained=False, **kwargs):
+    model = models.convnext_tiny(pretrained=pretrained, weights=models.ConvNeXt_Tiny_Weights.DEFAULT)
+    with torch.no_grad():
+        model.avgpool = nn.Identity()
+        model.classifier = nn.Identity()    
+    
+    return model

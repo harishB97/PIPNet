@@ -171,6 +171,11 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use align_pf (CARL style align_pf) loss or not.'
                         )
+    parser.add_argument('--minmaximize',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use minmaximize loss or not.'
+                        )
     parser.add_argument('--softmax',
                         type=str,
                         default='n',
@@ -199,6 +204,26 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use focal similarity'
+                        )
+    parser.add_argument('--wandb',
+                        type=str,
+                        default='y',
+                        help='(y/n) Flag to enable/disable wandb logging'
+                        )
+    parser.add_argument('--training_wheels',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag to do trial run of the code'
+                        )
+    parser.add_argument('--weighted_ce_loss',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag to indicate whether to use weighted loss for classification'
+                        )
+    parser.add_argument('--protopool',
+                        type=str,
+                        default='y',
+                        help='(y/n) If yes all prototypes are common to all child classes'
                         )
 
     
@@ -232,7 +257,8 @@ def save_args(args: argparse.Namespace, directory_path: str) -> None:
     # Pickle the args for possible reuse
     with open(directory_path + '/args.pickle', 'wb') as f:
         pickle.dump(args, f)                                                                               
-    
+
+
 def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)

@@ -21,9 +21,11 @@ from omegaconf import OmegaConf
 from util.node import Node
 import shutil
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
+from util.custom_losses import WeightedCrossEntropyLoss, WeightedNLLLoss
 
 import time
 import wandb
+from collections import Counter
 
 # # Set CUDA_LAUNCH_BLOCKING=1
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -61,8 +63,22 @@ def run_pipnet(args=None):
     args = args or get_args()
     assert args.batch_size > 1
 
+    if args.training_wheels == 'y':
+        args.wandb = 'n'
+        args.copy_files = 'n'
+
+    if args.wandb == 'n':
+        os.environ['WANDB_DISABLED'] = 'true'
+        print('Disabled wand')
+
     if (args.align_pf == 'y') and not (args.softmax == 'y' or args.gumbel_softmax == 'y'):
         raise Exception('Use align_pf loss only when softmax or gumbel softmax is turned on')
+
+    if (args.minmaximize == 'y') and (args.protopool == 'y'):
+        raise Exception('Only use minmaximize loss when args.protopool == "n"')
+    
+    if (args.tanh_desc == 'y') and (args.protopool == 'y'):
+        raise Exception('Only use tanh_desc loss when args.protopool == "n"')
  
     # Create a logger
     log = Log(args.log_dir)
@@ -78,6 +94,8 @@ def run_pipnet(args=None):
         copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
                     extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
         print('copy_files', (time.time()-time_)/60)
+    else:
+        print('Disabled copy_files')
     
     # os.environ['WANDB_MODE'] = 'offline'
     # os.environ['WANDB_DIR'] = args.log_dir
@@ -111,9 +129,16 @@ def run_pipnet(args=None):
         # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
     root.assign_all_descendents()
 
+    
+
     # update num of protos per node based on num_protos_per_descendant
+    if args.num_features == 0 and args.num_protos_per_descendant == 0:
+        raise Exception('Either of num_features or num_protos_per_descendant must be greater than zero')
     for node in root.nodes_with_children():
-        node.set_num_protos(args.num_protos_per_descendant)
+        node.set_num_protos(num_protos_per_descendant=args.num_protos_per_descendant,\
+                            min_protos=args.num_features,\
+                            split_protos=('protopool' in args) and (args.protopool == 'n'))
+      
 
     gpu_list = args.gpu_ids.split(',')
     device_ids = []
@@ -156,6 +181,23 @@ def run_pipnet(args=None):
         print("Classes: ", str(classes), flush=True)
 
     print("Node count:", len(root.nodes_with_children()))
+
+    # Obtain the number of images per class
+    temp_dataset = trainloader.dataset.dataset.dataset
+    idx_to_class = {v: k for k, v in temp_dataset.class_to_idx.items()}
+    class_counts = Counter({class_name: 0 for class_name in temp_dataset.classes})
+    for *_, targets in trainloader:
+        targets = targets.numpy() if not isinstance(targets, list) else targets
+        class_names = [idx_to_class[idx] for idx in targets]
+        class_counts.update(class_names)
+
+    # Set loss weightage for each node if args.weighted_ce_loss == 'y'
+    if ('weighted_ce_loss' in args) and (args.weighted_ce_loss == 'y'):
+        for node in root.nodes_with_children():
+            node.set_loss_weightage(class_size_count=class_counts)
+
+    # for node in root.nodes_with_children():
+    #     print(node.name, node.num_images_of_each_child)
     
     # Create a convolutional network based on arguments and add 1x1 conv layer
     feature_net, add_on_layers, pool_layer, classification_layers, num_prototypes = get_network(len(classes), args, root)
@@ -179,6 +221,7 @@ def run_pipnet(args=None):
     # Initialize or load model
     with torch.no_grad():
         if args.state_dict_dir_net != '':
+            raise Exception('Do not use this, use state_dict_dir_backbone for loading pretrained ._net')
             checkpoint = torch.load(args.state_dict_dir_net,map_location=device)
             net.load_state_dict(checkpoint['model_state_dict'],strict=True) 
             print("Pretrained network loaded", flush=True)
@@ -218,13 +261,14 @@ def run_pipnet(args=None):
                 if attr.endswith('_add_on'):
                     getattr(net.module, attr).apply(init_weights_xavier)
 
-            # initialize classification
-            for attr in dir(net.module):
-                if attr.endswith('_classification'):
-                    torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
-                    if args.bias:
-                        torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
-                    print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+            # # initialize classification
+            # for attr in dir(net.module):
+            #     if attr.endswith('_classification'):
+            #         torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
+            #         if args.bias:
+            #             torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
+            #         print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+            
             # initialize multiplier
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
@@ -235,21 +279,26 @@ def run_pipnet(args=None):
             for attr in dir(net.module):
                 if attr.endswith('_add_on'):
                     getattr(net.module, attr).apply(init_weights_xavier)
-            # initialize classification
-            for attr in dir(net.module):
-                if attr.endswith('_classification'):
-                    torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
-                    if args.bias:
-                        torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
-                    print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+
+            # # initialize classification
+            # for attr in dir(net.module):
+            #     if attr.endswith('_classification'):
+            #         torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
+            #         if args.bias:
+            #             torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
+            #         print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
+
             # initialize multiplier
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
 
             
     
+    
     # Define classification loss function and scheduler
-    criterion = nn.NLLLoss(reduction='mean').to(device)
+    # if args.weighted_ce_loss == 'n' input weights during forward call will be none and the output will be unweighted mean
+    criterion = WeightedNLLLoss(device=device).to(device)
+
     scheduler_net = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_net, T_max=len(trainloader_pretraining)*args.epochs_pretrain, eta_min=args.lr_block/100., last_epoch=-1)
 
     # Forward one batch through the backbone to get the latent output size
@@ -297,7 +346,7 @@ def run_pipnet(args=None):
                                             scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
                                             pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
                                             tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                            wandb_run=wandb_run, log=log)
+                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, log=log)
         # wandb_run.log(log_dict, step=epoch)
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
@@ -404,14 +453,15 @@ def run_pipnet(args=None):
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
                                           tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                           wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+                                           minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
                                     test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
                                         tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                         wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+                                         minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
         lrs_net+=train_info['lrs_net']

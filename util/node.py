@@ -3,6 +3,14 @@ import torch
 import graphviz
 import os
 import torch.nn.functional as F
+from collections import defaultdict
+
+def split_value(M, n):
+    quotient, remainder = divmod(M, n)
+    parts = [quotient] * n
+    for i in range(remainder):
+        parts[i] += 1
+    return parts
 
 class Node:
 
@@ -13,16 +21,31 @@ class Node:
         self.children_to_labels = {}
         self.name = name
         self.label = label
+        self.weights = None
+        self.num_protos_per_child = None #{}
 
-    def set_num_protos(self, num_protos_per_descendant):
-        # self.num_protos_per_child = {}
-        # for child in self.children:
-        #     if child.is_leaf():
-        #         self.num_protos_per_child[child.name] = num_protos_per_descendant
-        #     else:
-        #         self.num_protos_per_child[child.name] = child.num_descendents() * num_protos_per_descendant
+    def set_loss_weightage(self, class_size_count):
+        self.num_images_of_each_child = []
+        for child in self.children:
+            num_images_of_child = 0
+            for leaf_descendent_name in self.leaf_descendents_of_child[child.name]:
+                num_images_of_child += class_size_count[leaf_descendent_name]
+            self.num_images_of_each_child.append(num_images_of_child)
+        self.weights = min(self.num_images_of_each_child) / torch.tensor(self.num_images_of_each_child, requires_grad=False)
 
-        self.num_protos = self.num_descendents() * num_protos_per_descendant
+    def set_num_protos(self, num_protos_per_descendant, min_protos=0, split_protos=False):
+        self.num_protos = max(min_protos, self.num_leaf_descendents() * num_protos_per_descendant)
+
+        if split_protos:
+            self.num_protos_per_child = {}
+
+        if split_protos and (min_protos > (self.num_leaf_descendents() * num_protos_per_descendant)):
+            parts = split_value(min_protos, self.num_children())
+            for i, child in enumerate(self.children):
+                self.num_protos_per_child[child.name] = parts[i]
+        elif split_protos and (min_protos < (self.num_leaf_descendents() * num_protos_per_descendant)):
+            for i, child in enumerate(self.children):
+                self.num_protos_per_child[child.name] = len(self.leaf_descendents_of_child[child.name]) * num_protos_per_descendant
 
     def add_children(self, names, labels = None):
         if type(names) is not list:
@@ -165,12 +188,44 @@ class Node:
             active_nodes = new_active_nodes                    
         self.descendents = descendents
 
+    def assign_leaf_descendents(self):
+        active_nodes = []
+        active_nodes += self.children
+        # set of all leaf descendents on both side
+        leaf_descendents = set()
+        # leaf descendents on each child node, if child is itself a leaf node it is mapped to itself
+        leaf_descendents_of_child = defaultdict(set) 
+        while len(active_nodes) > 0:
+            for node in active_nodes:
+                if node.is_leaf():
+                    leaf_descendents.add(node.name)
+                    leaf_descendents_of_child[self.closest_descendent_for(node.name).name].add(node.name)
+            new_active_nodes = [] 
+            for node in active_nodes:
+                new_active_nodes += node.children
+            active_nodes = new_active_nodes                    
+        self.leaf_descendents = leaf_descendents
+        self.leaf_descendents_of_child = leaf_descendents_of_child
+
     def assign_all_descendents(self):
         active_nodes = []
         active_nodes += [self]
         while len(active_nodes) > 0:
             for node in active_nodes:
                 node.assign_descendents()
+            new_active_nodes = [] 
+            for node in active_nodes:
+                new_active_nodes += node.children
+            active_nodes = new_active_nodes       
+
+        self.assign_all_leaf_descendents()
+
+    def assign_all_leaf_descendents(self):
+        active_nodes = []
+        active_nodes += [self]
+        while len(active_nodes) > 0:
+            for node in active_nodes:
+                node.assign_leaf_descendents()
             new_active_nodes = [] 
             for node in active_nodes:
                 new_active_nodes += node.children
@@ -182,6 +237,9 @@ class Node:
     
     def num_descendents(self):
         return len(self.descendents)
+    
+    def num_leaf_descendents(self):
+        return len(self.leaf_descendents)
 
 
     # def closest_descendent_for(self,name):
