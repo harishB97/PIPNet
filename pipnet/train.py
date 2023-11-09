@@ -811,7 +811,9 @@ def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight,
         if not pretrain:
             # finetuning or general training
             softmax_inputs = torch.log1p(node_logits**net_normalization_multiplier)
-            class_loss[node.name] = criterion(F.log_softmax((softmax_inputs),dim=1), \
+            # softmax_tau = 0.2
+            # softmax_inputs = softmax_inputs / softmax_tau
+            class_loss[node.name] = criterion(softmax_inputs, \
                                                 node_y, \
                                                 node.weights) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
             # loss += cl_weight * class_loss[node.name]

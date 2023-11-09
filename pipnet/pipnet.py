@@ -8,7 +8,7 @@ import torch
 from torch import Tensor
 from util.node import Node
 import numpy as np
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
@@ -86,6 +86,8 @@ class PIPNet(nn.Module):
             proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
 
             if self.args.softmax == 'y':
+                softmax_tau = 0.2
+                proto_features[node.name] = proto_features[node.name] / softmax_tau
                 proto_features_softmaxed[node.name] = self._softmax(proto_features[node.name])
                 proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
             elif self.args.gumbel_softmax == 'y':
@@ -184,7 +186,20 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     else:
         raise Exception('other base architecture NOT implemented')
     
+    if args.stage4_reducer_net != '':
+        layer_infos = args.stage4_reducer_net.split('|')
+        reducer_layers = [('backbone', features)]
+        for i, layer_info in enumerate(layer_infos):
+            in_channels = int(layer_info.split(',')[0])
+            out_channels = int(layer_info.split(',')[1])
+            reducer = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, \
+                        kernel_size=1, stride = 1, padding=0, bias=True)
+            reducer_layers.append(('stage4_reducer_'+str(i)+'_conv', reducer))
+            reducer_layers.append(('stage4_reducer_'+str(i)+'_gelu', nn.GELU()))
         
+        features = nn.Sequential(OrderedDict(reducer_layers))
+        first_add_on_layer_in_channels = out_channels
+
     if args.num_features == 0:
         num_prototypes = first_add_on_layer_in_channels
     else:

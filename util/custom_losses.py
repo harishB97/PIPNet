@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+from kornia.losses import FocalLoss
 
 class WeightedCrossEntropyLoss(torch.nn.Module):
     def __init__(self):
@@ -18,7 +19,8 @@ class WeightedNLLLoss(torch.nn.Module):
         super(WeightedNLLLoss, self).__init__()
         self.device = device
 
-    def forward(self, log_probs, targets, weights=None):
+    def forward(self, logits, targets, weights=None):
+        log_probs = F.log_softmax((logits),dim=1)
         batch_loss = F.nll_loss(log_probs, targets, reduction='none')
         
         if weights is not None:
@@ -30,3 +32,13 @@ class WeightedNLLLoss(torch.nn.Module):
             loss = batch_loss.mean()
 
         return loss
+
+
+class FocalLossWrapper(torch.nn.Module):
+    def __init__(self, device, alpha, gamma=2.0, reduction='mean', weight=None):
+        super(FocalLossWrapper, self).__init__()
+        self.loss = FocalLoss(alpha=alpha, gamma=gamma, reduction=reduction).to(device)
+
+    # weights is here because it is used by other custom losses it will not be used
+    def forward(self, pred, target, weights=None):
+        return self.loss.forward(pred, target)

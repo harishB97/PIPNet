@@ -21,7 +21,8 @@ from omegaconf import OmegaConf
 from util.node import Node
 import shutil
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
-from util.custom_losses import WeightedCrossEntropyLoss, WeightedNLLLoss
+from util.custom_losses import WeightedCrossEntropyLoss, WeightedNLLLoss, FocalLossWrapper
+from util.vis_hpipnet import save_images_topk
 
 import time
 import wandb
@@ -292,12 +293,13 @@ def run_pipnet(args=None):
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
 
-            
-    
-    
+
     # Define classification loss function and scheduler
     # if args.weighted_ce_loss == 'n' input weights during forward call will be none and the output will be unweighted mean
-    criterion = WeightedNLLLoss(device=device).to(device)
+    if ('focal_loss' in args) and (args.focal_loss == 'y'):
+        criterion = FocalLossWrapper(device=device, alpha=1, gamma=args.focal_loss_gamma, reduction='mean').to(device)
+    else:
+        criterion = WeightedNLLLoss(device=device).to(device)
 
     scheduler_net = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer_net, T_max=len(trainloader_pretraining)*args.epochs_pretrain, eta_min=args.lr_block/100., last_epoch=-1)
 
@@ -386,7 +388,7 @@ def run_pipnet(args=None):
    
     for epoch in range(1, args.epochs + 1):                      
         epochs_to_finetune = 5 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
-        if epoch <= epochs_to_finetune and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
+        if epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False
             for attr in dir(net.module):
@@ -598,6 +600,10 @@ def run_pipnet(args=None):
     #             print(args.dataset, "- OOD", ood_dataset, "class threshold ID fraction (FPR) with percent",percent,":", id_fraction, flush=True)                
 
     print("Done!", flush=True)
+
+    save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=False, device=device)
+    
+    save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
 
 class Tee(object):
     def __init__(self, name, mode, outstream):

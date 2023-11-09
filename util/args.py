@@ -218,12 +218,26 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--weighted_ce_loss',
                         type=str,
                         default='n',
-                        help='(y/n) Flag to indicate whether to use weighted loss for classification'
+                        help='(y/n) Flag to indicate whether to use weighted loss for classification. This actually uses weighted NLLLoss'
                         )
     parser.add_argument('--protopool',
                         type=str,
                         default='y',
                         help='(y/n) If yes all prototypes are common to all child classes'
+                        )
+    parser.add_argument('--focal_loss',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag to indicate focal loss'
+                        )
+    parser.add_argument('--focal_loss_gamma',
+                        type=float,
+                        default=2.0,
+                        help='Gamma for focal loss')
+    parser.add_argument('--stage4_reducer_net',
+                        type=str,
+                        default='',
+                        help='Architecture of the reducer net defined in in,out|in,out format'
                         )
 
     
@@ -280,13 +294,38 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
             elif 'layer2' in name:
                 params_backbone.append(param)
             else: #such that model training fits on one gpu. 
-                param.requires_grad = False
-                # params_backbone.append(param)
-    
+                # param.requires_grad = False
+                params_backbone.append(param)
+    elif 'resnet18' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.1' in name:
+                params_to_train.append(param)
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze.append(param)
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone.append(param)
+    elif 'resnet34' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.2' in name:
+                params_to_train.append(param)
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze.append(param)
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone.append(param)
     elif 'convnext' in args.net:
         print("chosen network is convnext", flush=True)
         for name,param in net.module._net.named_parameters():
             if 'features.7.2' in name: 
+                params_to_train.append(param)
+            elif 'stage4_reducer' in name:
                 params_to_train.append(param)
             elif 'features.7' in name or 'features.6' in name:
                 params_to_freeze.append(param)
