@@ -239,6 +239,16 @@ def get_args() -> argparse.Namespace:
                         default='',
                         help='Architecture of the reducer net defined in in,out|in,out format'
                         )
+    parser.add_argument('--basic_cnext_gaussian_multiplier',
+                        type=str,
+                        default='',
+                        help='Basic gaussian multiplier that does multiplies after guassian by a fixed value, set sigma and factor ex 3,4|sigma|factor'
+                        )
+    parser.add_argument('--viz_loader',
+                        type=str,
+                        default='projectloader,test_projectloader',
+                        help='Architecture of the reducer net defined in in,out|in,out format'
+                        )
 
     
     args = parser.parse_args()
@@ -294,8 +304,8 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
             elif 'layer2' in name:
                 params_backbone.append(param)
             else: #such that model training fits on one gpu. 
-                # param.requires_grad = False
-                params_backbone.append(param)
+                param.requires_grad = False
+                # params_backbone.append(param)
     elif 'resnet18' in args.net: 
         # freeze resnet50 except last convolutional layer
         for name,param in net.module._net.named_parameters():

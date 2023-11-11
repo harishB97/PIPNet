@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from features.resnet_features import resnet18_features, resnet34_features, resnet50_features, resnet50_features_inat, resnet101_features, resnet152_features
-from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features, convnext_tiny_7_features 
+from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features, convnext_tiny_7_features, apply_gaussian_multiplier_to_convnext_stage
 import torch
 from torch import Tensor
 from util.node import Node
@@ -84,6 +84,9 @@ class PIPNet(nn.Module):
         out = {}
         for node in self.root.nodes_with_children():
             proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
+
+            if isinstance(getattr(self, '_'+node.name+'_add_on'), UnitConv2D):
+                proto_features[node.name] = torch.abs(proto_features[node.name])
 
             if self.args.softmax == 'y':
                 softmax_tau = 0.2
@@ -185,6 +188,14 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
             [i for i in features.modules() if isinstance(i, nn.Conv2d)][-1].out_channels
     else:
         raise Exception('other base architecture NOT implemented')
+
+    if args.basic_cnext_gaussian_multiplier != '':
+        stages = args.basic_cnext_gaussian_multiplier.split('|')[0]
+        stages = [int(s) for s in stages.split(',')]
+        sigma = float(args.basic_cnext_gaussian_multiplier.split('|')[1])
+        factor = int(args.basic_cnext_gaussian_multiplier.split('|')[2])
+        for stage in stages:
+            apply_gaussian_multiplier_to_convnext_stage(features, stage=stage, sigma=sigma, factor=factor, device='cuda')
     
     if args.stage4_reducer_net != '':
         layer_infos = args.stage4_reducer_net.split('|')
@@ -195,7 +206,11 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
             reducer = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, \
                         kernel_size=1, stride = 1, padding=0, bias=True)
             reducer_layers.append(('stage4_reducer_'+str(i)+'_conv', reducer))
-            reducer_layers.append(('stage4_reducer_'+str(i)+'_gelu', nn.GELU()))
+            print('Added reducer', 'stage4_reducer_'+str(i)+'_conv', in_channels, 'to', out_channels)
+            if (len(layer_info.split(',')) > 2):
+                if layer_info.split(',')[2] == 'gelu':
+                    reducer_layers.append(('stage4_reducer_'+str(i)+'_gelu', nn.GELU()))
+                    print('Added reducer', 'stage4_reducer_'+str(i)+'_gelu')
         
         features = nn.Sequential(OrderedDict(reducer_layers))
         first_add_on_layer_in_channels = out_channels

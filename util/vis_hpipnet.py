@@ -48,7 +48,7 @@ def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     return F.conv2d(normalized_input, normalized_weight, normalized_bias, stride=stride, padding=padding)
 
 def findCorrespondingToMax(base, target):
-    output, indices = F.max_pool2d(base, kernel_size=(26, 26), return_indices=True)# these are logits
+    output, indices = F.max_pool2d(base, kernel_size=(base.shape[-1], base.shape[-1]), return_indices=True)# these are logits
     tensor_flattened = target.view(target.shape[0], target.shape[1], -1)
     indices_flattened = indices.view(target.shape[0], target.shape[1], -1)
     corresponding_values_in_target = torch.gather(tensor_flattened, 2, indices_flattened)
@@ -69,12 +69,20 @@ def customForwardWithCSandSoftmax(net, xs,  inference=False):
     for node in net.module.root.nodes_with_children():
         # this may or may not be cosine similarity based on UniConv2D or Conv2d
         proto_features[node.name] = getattr(net.module, '_'+node.name+'_add_on')(features)
+
+        if isinstance(getattr(net.module, '_'+node.name+'_add_on'), UnitConv2D):
+            proto_features[node.name] = torch.abs(proto_features[node.name])
         
         #calculating cosine similarity
         prototypes = getattr(net.module, '_'+node.name+'_add_on')
         proto_features_cs[node.name] = functional_UnitConv2D(features, prototypes.weight, prototypes.bias)
 
+        if isinstance(getattr(net.module, '_'+node.name+'_add_on'), UnitConv2D):
+            proto_features_cs[node.name] = torch.abs(proto_features_cs[node.name])
+
         if net.module.args.softmax == 'y':
+            softmax_tau = 0.2
+            proto_features[node.name] = proto_features[node.name] / softmax_tau
             proto_features_softmaxed[node.name] = net.module._softmax(proto_features[node.name])
             proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
         elif net.module.args.gumbel_softmax == 'y':
@@ -153,7 +161,7 @@ def get_heap():
     heapq.heapify(list_)
     return list_
 
-def save_images_topk(args, dataloader, net, root, save_path, topk=10, find_non_descendants=False, device='cpu'):
+def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10, find_non_descendants=False, device='cpu'):
 
     save_images = True
     font = ImageFont.truetype("arial.ttf", 50)
@@ -335,14 +343,15 @@ def save_images_topk(args, dataloader, net, root, save_path, topk=10, find_non_d
                     text = f'Node:{node.name}, p{p}, Child:{child_classname}'
                     txtimage = Image.new("RGB", (grid.shape[-1], 224), (0, 0, 0))
                     draw = D.Draw(txtimage)
-                    draw.text((350, patches[0].shape[1]//2), text, anchor='mm', fill="white", font=font)
+                    draw.text((450, patches[0].shape[1]//2), text, anchor='mm', fill="white", font=font)
                     txttensor = transforms.ToTensor()(txtimage)#.unsqueeze_(0)
 
                     # merging top description with the grid of images
                     grid = torch.cat([grid, txttensor], dim=1)
                     
                     prefix = 'non_' if find_non_descendants else ''
-                    os.makedirs(os.path.join(save_path, prefix + f'descendent_specific_topk_heatmap_ep=last', node.name), exist_ok=True)
-                    torchvision.utils.save_image(grid, os.path.join(save_path, prefix + f'descendent_specific_topk_heatmap_ep=last', node.name, f'{child_classname}-p{p}.png'))
+                    os.makedirs(os.path.join(save_path, prefix + foldername, node.name), exist_ok=True)
+                    torchvision.utils.save_image(grid, os.path.join(save_path, prefix + foldername, node.name, f'{child_classname}-p{p}.png'))
 
     print('Done !!!')
+

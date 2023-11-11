@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --account=ml4science2
-#SBATCH --partition=dgx_normal_q
+#SBATCH --account=ml4science
+#SBATCH --partition=a100_normal_q
 #SBATCH --time=6:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
@@ -26,14 +26,14 @@ which python
 # epoch to 60, pretrain to 60, freeze_epochs 10, finetune to 5, viz topk commented at all places, print weights commented, prototype purity commented
 # pretraining-check-001-AL=3_UW=6
 # set finetune back to 5, epochs_pretrain=60
-python main.py --log_dir './runs/087-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_latent-dim=256_nprotos=4per-leaf-desc_unit-sphere_finetune=5_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_mm-loss_batch=48' \
+python main.py --log_dir './runs/095-091-woALUNI-CUB-18-imgnet_with-equalize-aug_cnext26_BGM=4|1.0|50_img=224_nprotos=4per-leaf-desc_unit-sphere_finetune=5_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_no-AL_no-UNI_mm-loss_batch=48' \
                --dataset CUB-18-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \
                --batch_size 48 \
                --batch_size_pretrain 48 \
                --epochs 60 \
-               --epochs_pretrain 60 \
+               --epochs_pretrain 30 \
                --optimizer 'Adam' \
                --lr 0.05 \
                --lr_block 0.0005 \
@@ -53,8 +53,8 @@ python main.py --log_dir './runs/087-CUB-18-imgnet_with-equalize-aug_cnext26_img
                --num_protos_per_descendant 4 \
                --copy_files "y" \
                --tanh_desc "n" \
-               --align "y"\
-               --uni "y" \
+               --align "n"\
+               --uni "n" \
                --align_pf "n" \
                --minmaximize "y" \
                --unitconv2d "y" \
@@ -69,8 +69,9 @@ python main.py --log_dir './runs/087-CUB-18-imgnet_with-equalize-aug_cnext26_img
                --focal_loss "n" \
                --focal_loss_gamma 2.0 \
                --protopool "n" \
-               --stage4_reducer_net "768,384|384,256" \
+               --stage4_reducer_net "" \
                --state_dict_dir_backbone "" \
+               --basic_cnext_gaussian_multiplier "4|1.0|50" \
                # --state_dict_dir_backbone "/home/harishbabu/projects/PIPNet/runs/082-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_nprotos=4per-leaf-desc_unit-sphere_finetune=5_no-meanpool_with-softmax_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_mm-loss_batch=48/checkpoints/net_pretrained" \
                # --state_dict_dir_net '/home/harishbabu/projects/PIPNet/runs/068-CUB-18-imgnet_with-equalize-aug_cnext26_img=224_nprotos=4per-desc_unit-sphere-protopool_finetune=5_no-meanpool_no-softmax_AW=3-TW=2-UW=3-CW=2_batch=20/checkpoints/net_pretrained' \
             #    --add_on_bias \

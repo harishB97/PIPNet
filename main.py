@@ -216,6 +216,8 @@ def run_pipnet(args=None):
                     )
     net = net.to(device=device)
     net = nn.DataParallel(net, device_ids = device_ids)    
+
+    print(net)
     
     optimizer_net, optimizer_classifier, params_to_freeze, params_to_train, params_backbone = get_optimizer_nn(net, args)   
 
@@ -601,9 +603,28 @@ def run_pipnet(args=None):
 
     print("Done!", flush=True)
 
-    save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=False, device=device)
-    
-    save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
+    args.batch_size = 1
+    trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
+
+    if args.viz_loader == 'project'
+
+    for loadername in args.viz_loader.split(','):
+
+        if loadername == 'projectloader':
+            foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
+            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, \
+                                foldername=foldername, find_non_descendants=False, device=device)
+            print("Done visualizing descendants! " + loadername, flush=True)
+            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
+            print("Done visualizing non-descendants!" + loadername, flush=True)
+
+        elif loadername == 'test_projectloader':
+            foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
+            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, \
+                                foldername=foldername, find_non_descendants=False, device=device)
+            print("Done visualizing descendants! " + loadername, flush=True)
+            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
+            print("Done visualizing non-descendants!" + loadername, flush=True)
 
 class Tee(object):
     def __init__(self, name, mode, outstream):
