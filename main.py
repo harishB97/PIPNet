@@ -130,7 +130,9 @@ def run_pipnet(args=None):
         # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
     root.assign_all_descendents()
 
-    
+    # set pretrain epochs zero if align and uni are not used
+    if (args.align == 'n') and (args.uni == 'n'):
+        args.epochs_pretrain = 0
 
     # update num of protos per node based on num_protos_per_descendant
     if args.num_features == 0 and args.num_protos_per_descendant == 0:
@@ -389,7 +391,7 @@ def run_pipnet(args=None):
     lrs_classifier = []
    
     for epoch in range(1, args.epochs + 1):                      
-        epochs_to_finetune = 5 #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
+        epochs_to_finetune = args.epochs_finetune #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False
@@ -452,6 +454,13 @@ def run_pipnet(args=None):
                             print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
                 torch.set_printoptions(profile="default")
 
+            for node in root.nodes_with_children():
+                classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+                node_label_to_children = {label: name for name, label in node.children_to_labels.items()}
+                for class_label in range(classification_weights.shape[0]):
+                    class_name = node_label_to_children[class_label]
+                    print(f'Num protos for {node.name} class', class_name, torch.nonzero(classification_weights[class_label, :] > 1e-3).shape[0])
+
         train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
                                   scheduler_net, scheduler_classifier, criterion, epoch, \
                                     args.epochs, device, pretrain=False, finetune=finetune, \
@@ -459,12 +468,14 @@ def run_pipnet(args=None):
                                           tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
-        test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
-                                  scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, \
-                                    test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                        tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                         minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+        
+        if (epoch==args.epochs or epoch%5==0) and args.epochs>1:
+            test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
+                                    scheduler_net, scheduler_classifier, criterion, epoch, \
+                                        args.epochs, device, pretrain=False, finetune=finetune, \
+                                        test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
 
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
@@ -606,8 +617,6 @@ def run_pipnet(args=None):
     args.batch_size = 1
     trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
 
-    if args.viz_loader == 'project'
-
     for loadername in args.viz_loader.split(','):
 
         if loadername == 'projectloader':
@@ -615,7 +624,8 @@ def run_pipnet(args=None):
             save_images_topk(args, projectloader, net, root, save_path=args.log_dir, \
                                 foldername=foldername, find_non_descendants=False, device=device)
             print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
+            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, \
+                             foldername=foldername, find_non_descendants=True, device=device)
             print("Done visualizing non-descendants!" + loadername, flush=True)
 
         elif loadername == 'test_projectloader':
@@ -623,7 +633,8 @@ def run_pipnet(args=None):
             save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, \
                                 foldername=foldername, find_non_descendants=False, device=device)
             print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, find_non_descendants=True, device=device)
+            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, \
+                             foldername=foldername, find_non_descendants=True, device=device)
             print("Done visualizing non-descendants!" + loadername, flush=True)
 
 class Tee(object):

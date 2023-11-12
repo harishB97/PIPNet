@@ -99,7 +99,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         align_pf_weight = 5. 
         # unif_weight = 2. # 0.
         align_weight = 3. 
-        unif_weight = 1. #3. # 0.
+        unif_weight = 3. #3. # 0.
         t_weight = 2.
         mm_weight = 2.
         cl_weight = 2.

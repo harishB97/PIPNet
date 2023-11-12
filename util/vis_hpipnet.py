@@ -23,7 +23,7 @@ from PIL import ImageFont, Image, ImageDraw as D
 import torchvision
 import torch.nn.functional as F
 
-from pipnet.pipnet import PIPNet, get_network
+from pipnet.pipnet import PIPNet, get_network, UnitConv2D
 from util.log import Log
 from util.args import get_args, save_args, get_optimizer_nn
 from util.data import get_dataloaders
@@ -37,6 +37,8 @@ from util.node import Node
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 from util.func import get_patch_size
 from util.data import ModifiedLabelLoader
+
+# CONSIDERING-CHILD-WITH-ONE-LEAF-DESCENDANT
 
 def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
@@ -198,10 +200,11 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
         class_and_prototypes = defaultdict(set)
 
         for i, (xs, orig_y, ys) in img_iter:
-            if not find_non_descendants: 
-                # do only when finding descendants
-                if coarse_label2name[ys.item()] not in non_leaf_children_names:
-                    continue
+            # CONSIDERING-CHILD-WITH-ONE-LEAF-DESCENDANT
+            # if not find_non_descendants: 
+            #     # do only when finding descendants
+            #     if coarse_label2name[ys.item()] not in non_leaf_children_names:
+            #         continue
 
             xs, ys = xs.to(device), ys.to(device)
 
@@ -232,9 +235,10 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
 
                     if len(relevant_proto_class_names) == 0:
                         continue
-                    
-                    if (len(relevant_proto_class_names) == 1) and (relevant_proto_class_names[0] not in non_leaf_children_names):
-                        continue
+
+                    # CONSIDERING-CHILD-WITH-ONE-LEAF-DESCENDANT
+                    # if (len(relevant_proto_class_names) == 1) and (relevant_proto_class_names[0] not in non_leaf_children_names):
+                    #     continue
                     
                     h_coor_min, h_coor_max, w_coor_min, w_coor_max = get_img_coordinates(args.image_size, softmaxes.shape, patchsize, skip, h_idx, w_idx)
                     latent_activation = softmaxes[:, p, :, :]
@@ -268,6 +272,9 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
 
         
         print('Node', node.name)
+        for class_label in range(classification_weights.shape[0]):
+            child_name = (coarse_label2name[class_label])
+            print('Num protos for', child_name, torch.nonzero(classification_weights[class_label, :] > 1e-3).shape[0])
         for child_classname in class_and_prototypes:
             
             print('\t'*1, 'Child:', child_classname)
@@ -328,7 +335,8 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
                         right_descriptions.append(txttensor)
                     
                     # weird thing padding should be zero for non descendants else it raises some error
-                    if find_non_descendants:
+                    # CONSIDERING-CHILD-WITH-ONE-LEAF-DESCENDANT
+                    if find_non_descendants or (len(patches) == topk): # (len(patches) == topk) means there is only one leaf descendant
                         padding = 0
                     else:
                         padding = 1

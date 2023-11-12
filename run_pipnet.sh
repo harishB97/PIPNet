@@ -2,7 +2,7 @@
 
 #SBATCH --account=ml4science
 #SBATCH --partition=a100_normal_q
-#SBATCH --time=6:00:00 
+#SBATCH --time=8:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH -o ./SLURM/slurm-%j.out
@@ -25,15 +25,18 @@ which python
 # 080-CUB-18-imgnet_with-equalize-aug_cnext7_img=224_nprotos=20_unit-sphere-protopool_finetune=5_align-pf-during-training_no-meanpool_with-softmax_no-addon-bias_AW=3-TW=2-UW=3-CW=2_weighted-ce_batch=20
 # epoch to 60, pretrain to 60, freeze_epochs 10, finetune to 5, viz topk commented at all places, print weights commented, prototype purity commented
 # pretraining-check-001-AL=3_UW=6
-# set finetune back to 5, epochs_pretrain=60
-python main.py --log_dir './runs/095-091-woALUNI-CUB-18-imgnet_with-equalize-aug_cnext26_BGM=4|1.0|50_img=224_nprotos=4per-leaf-desc_unit-sphere_finetune=5_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_no-AL_no-UNI_mm-loss_batch=48' \
-               --dataset CUB-18-imgnet-224 \
+
+# DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
+# set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
+python main.py --log_dir './runs/100_CUB-29-imgnet_with-equalize-aug_cnext26_BGM=4|1.0|50_img=224_nprotos=20_unit-sphere-protopool_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_mm-loss_batch=48' \
+               --dataset CUB-29-imgnet-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \
                --batch_size 48 \
                --batch_size_pretrain 48 \
                --epochs 60 \
                --epochs_pretrain 30 \
+               --epochs_finetune 5 \
                --optimizer 'Adam' \
                --lr 0.05 \
                --lr_block 0.0005 \
@@ -46,17 +49,17 @@ python main.py --log_dir './runs/095-091-woALUNI-CUB-18-imgnet_with-equalize-aug
                --seed 1 \
                --gpu_ids '' \
                --num_workers 8 \
-               --phylo_config ./configs/cub18_phylogeny.yaml \
-               --experiment_note "Added reducer for latent dim=128. Removed focal loss. Fixed descendant count problem. Added minmaximize loss, limiting it to cl and add on layers. Added softmax after cs. Base unit sphere model with 20 protos per node. Loading the pretrained backbone so setting epochs_pretrain 0. With bias in the addon layer. Protopool, no seperate classifiction layer for each child node. Not using softmax. Added finetune back this time it trains add-on along with classification. Using equalize aug as well, but keeping augment parameters to the new one. No meanpool. With 60 epochs of unit-sphere pretraining. Set meanpool kernel size to 2. Class loss doesnt affect convnext only AL+UNI does. Removed OOD again. first run after fixing all the memory issue. Pretrain->AL+UNI, finetune->CL, general training->AL+UNI+TANH_DESC+CL. fixed UW=0 now UW=2. unit sphere latent space. 4 per descendant. Saving every 30 epochs. Added csv logging for node wise losses. Added wandb for logging nodewise losses. Added OOD for 18species subset. Added kernel orthogonality on only relevant prototype kernels with loss-weight 0.5. Filtered imgs in vis_pipnet and fixed the previous issue. Separate add_on for each node. Using cropped images for projection. Removed scaling -> (len(node_y) / len(ys[ys != OOD_LABEL])). Set finetune to 0 and Set freeze_epochs to 30. Added OOD loss, removed pretrained backbone. 005 had incorrect data.py. Fixed it again. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Not Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
+               --phylo_config ./configs/cub29_phylogeny.yaml \
+               --experiment_note "Cub29 subset. Removed focal loss. Fixed descendant count problem. Added minmaximize loss, limiting it to cl and add on layers. Added softmax after cs. Base unit sphere model with 20 protos per node. Loading the pretrained backbone so setting epochs_pretrain 0. With bias in the addon layer. Protopool, no seperate classifiction layer for each child node. Not using softmax. Added finetune back this time it trains add-on along with classification. Using equalize aug as well, but keeping augment parameters to the new one. No meanpool. With 60 epochs of unit-sphere pretraining. Set meanpool kernel size to 2. Class loss doesnt affect convnext only AL+UNI does. Removed OOD again. first run after fixing all the memory issue. Pretrain->AL+UNI, finetune->CL, general training->AL+UNI+TANH_DESC+CL. fixed UW=0 now UW=2. unit sphere latent space. 4 per descendant. Saving every 30 epochs. Added csv logging for node wise losses. Added wandb for logging nodewise losses. Added OOD for 18species subset. Added kernel orthogonality on only relevant prototype kernels with loss-weight 0.5. Filtered imgs in vis_pipnet and fixed the previous issue. Separate add_on for each node. Using cropped images for projection. Removed scaling -> (len(node_y) / len(ys[ys != OOD_LABEL])). Set finetune to 0 and Set freeze_epochs to 30. Added OOD loss, removed pretrained backbone. 005 had incorrect data.py. Fixed it again. Reducing protos to 50 from 200 since there is a lot of meaningless prototypes in 004. Not Using backbone thats already trained with all 190 species. Limited protos to 200 bcoz of memory issue. Added wandb logging" \
                --kernel_orth "n" \
-               --num_features 0 \
-               --num_protos_per_descendant 4 \
+               --num_features 20 \
+               --num_protos_per_descendant 0 \
                --copy_files "y" \
                --tanh_desc "n" \
-               --align "n"\
-               --uni "n" \
+               --align "y" \
+               --uni "y" \
                --align_pf "n" \
-               --minmaximize "y" \
+               --minmaximize "n" \
                --unitconv2d "y" \
                --softmax "y" \
                --gumbel_softmax "n" \
@@ -68,7 +71,7 @@ python main.py --log_dir './runs/095-091-woALUNI-CUB-18-imgnet_with-equalize-aug
                --weighted_ce_loss "n" \
                --focal_loss "n" \
                --focal_loss_gamma 2.0 \
-               --protopool "n" \
+               --protopool "y" \
                --stage4_reducer_net "" \
                --state_dict_dir_backbone "" \
                --basic_cnext_gaussian_multiplier "4|1.0|50" \

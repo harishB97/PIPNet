@@ -46,6 +46,10 @@ def get_args() -> argparse.Namespace:
                         default = 10,
                         help='Number of epochs to pre-train the prototypes (first training stage). Recommended to train at least until the align loss < 1'
                         )
+    parser.add_argument('--epochs_finetune',
+                        type=int,
+                        default=5,
+                        help='The number of epochs PIP-Net should be finetuned (second training stage)')
     parser.add_argument('--optimizer',
                         type=str,
                         default='Adam',
