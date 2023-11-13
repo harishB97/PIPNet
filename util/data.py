@@ -170,6 +170,23 @@ def get_data(args: argparse.Namespace):
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
                                     os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+    if args.dataset =='CUB-18-imgnet-bg-224':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_18_imgnet_bg_224/dataset_segmented_imgnet_pt'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_18_imgnet_bg_224/dataset_segmented_imgnet_pt'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
     
     if args.dataset =='CUB-29-imgnet-224':
         try:
