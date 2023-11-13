@@ -2,7 +2,7 @@
 
 #SBATCH --account=ml4science
 #SBATCH --partition=a100_normal_q
-#SBATCH --time=8:00:00 
+#SBATCH --time=12:00:00 
 #SBATCH --gres=gpu:1
 #SBATCH --nodes=1 --ntasks-per-node=1 --cpus-per-task=8
 #SBATCH -o ./SLURM/slurm-%j.out
@@ -28,8 +28,8 @@ which python
 
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
-python main.py --log_dir './runs/104-091-wProtoPool20PerNodeALPF_CUB-18-imgnet_with-equalize-aug_cnext26_BGM=4|1.0|50_img=224_nprotos=20_unit-sphere-protopool_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_batch=48' \
-               --dataset CUB-18-imgnet-224 \
+python main.py --log_dir './runs/105-091-wProtoPool20PerNode_CUB-18-imgnet-bg_with-equalize-aug_cnext26_BGM=4|1.0|50_img=224_nprotos=20_unit-sphere-protopool_no-meanpool_with-softmax-tau=0.2_no-addon-bias_AW=3-TW=2-MMW=2-UW=3-CW=2_batch=48' \
+               --dataset CUB-18-imgnet-bg-224 \
                --validation_size 0.0 \
                --net convnext_tiny_26 \
                --batch_size 48 \
@@ -58,7 +58,7 @@ python main.py --log_dir './runs/104-091-wProtoPool20PerNodeALPF_CUB-18-imgnet_w
                --tanh_desc "n" \
                --align "y" \
                --uni "y" \
-               --align_pf "y" \
+               --align_pf "n" \
                --minmaximize "n" \
                --unitconv2d "y" \
                --softmax "y" \
