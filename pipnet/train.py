@@ -368,7 +368,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         for child in net.module.root.get_node(node_name).children:
             child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
             child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
-            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(child_n_correct/child_n_examples, 2)}'
+            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(torch.divide(child_n_correct, child_n_examples).item(), 2)}'
         print(log_string)
 
 
@@ -637,7 +637,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         for child in net.module.root.get_node(node_name).children:
             child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
             child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
-            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(child_n_correct/child_n_examples, 2)}'
+            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(torch.divide(child_n_correct, child_n_examples).item(), 2)}'
         print(log_string)
 
     # create a log csv file for each node to log the different loss values

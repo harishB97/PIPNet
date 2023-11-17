@@ -15,8 +15,19 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision.datasets.folder import ImageFolder
 from collections import Counter
+from torch.utils.data import Sampler, SubsetRandomSampler
 
 import os
+
+class SubsetSequentialSampler(Sampler):
+    def __init__(self, indices):
+        self.indices = indices
+
+    def __iter__(self):
+        return iter(self.indices)
+
+    def __len__(self):
+        return len(self.indices)
 
 class ModifiedLabelLoader(DataLoader):
     def __init__(self, dataloader, node, *args, **kwargs):
@@ -295,6 +306,18 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
     sampler = None
     
     num_workers = args.num_workers
+
+    if (('leave_out_classes' in args) and (args.leave_out_classes != '')) and (args.weighted_loss):
+        raise Exception('Do not use leave_out_classes and weighted_loss together')
+
+    if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+        leave_out_classes = args.leave_out_classes.split(',')
+        idx_of_classes_to_keep = set()
+        name2label = projectset.class_to_idx # param
+        label2name = {label:name for name, label in name2label.items()}
+        for label in label2name:
+            if label2name[label] not in leave_out_classes:
+                idx_of_classes_to_keep.add(label)
     
     if args.weighted_loss:
         if targets is None:
@@ -315,6 +338,14 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
         print(f'Dropping {(len(trainset) % args.batch_size)} samples from trainloader')
     else:
         drop_last = False
+    if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+        target_indices = []
+        for i in range(len(trainset)):
+            *_, label = trainset[i]
+            if label in idx_of_classes_to_keep:
+                target_indices.append(i)
+        sampler = SubsetRandomSampler(target_indices)
+        to_shuffle = False
     trainloader = torch.utils.data.DataLoader(trainset,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,
@@ -331,6 +362,14 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
             print(f'Dropping {(len(trainset_pretraining) % pretrain_batchsize)} samples from trainloader_pretraining')
         else:
             drop_last = False
+        if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+            target_indices = []
+            for i in range(len(trainset_pretraining)):
+                *_, label = trainset_pretraining[i]
+                if label in idx_of_classes_to_keep:
+                    target_indices.append(i)
+            sampler = SubsetRandomSampler(target_indices)
+            to_shuffle = False
         trainloader_pretraining = torch.utils.data.DataLoader(trainset_pretraining,
                                             batch_size=pretrain_batchsize,
                                             shuffle=to_shuffle,
@@ -347,6 +386,14 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
             print(f'Dropping {(len(trainset) % pretrain_batchsize)} samples from trainloader_pretraining')
         else:
             drop_last = False
+        if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+            target_indices = []
+            for i in range(len(trainset)):
+                *_, label = trainset[i]
+                if label in idx_of_classes_to_keep:
+                    target_indices.append(i)
+            sampler = SubsetRandomSampler(target_indices)
+            to_shuffle = False
         trainloader_pretraining = torch.utils.data.DataLoader(trainset,
                                             batch_size=pretrain_batchsize,
                                             shuffle=to_shuffle,
@@ -362,6 +409,14 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
         print(f'Dropping {(len(trainset_normal) % args.batch_size)} samples from trainloader_normal')
     else:
         drop_last = False
+    if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+        target_indices = []
+        for i in range(len(trainset_normal)):
+            *_, label = trainset_normal[i]
+            if label in idx_of_classes_to_keep:
+                target_indices.append(i)
+        sampler = SubsetRandomSampler(target_indices)
+        to_shuffle = False
     trainloader_normal = torch.utils.data.DataLoader(trainset_normal,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,
@@ -376,6 +431,14 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
         print(f'Dropping {(len(trainset_normal_augment) % args.batch_size)} samples from trainloader_normal_augment')
     else:
         drop_last = False
+    if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+        target_indices = []
+        for i in range(len(trainset_normal_augment)):
+            *_, label = trainset_normal_augment[i]
+            if label in idx_of_classes_to_keep:
+                target_indices.append(i)
+        sampler = SubsetRandomSampler(target_indices)
+        to_shuffle = False
     trainloader_normal_augment = torch.utils.data.DataLoader(trainset_normal_augment,
                                             batch_size=args.batch_size,
                                             shuffle=to_shuffle,

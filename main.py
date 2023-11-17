@@ -2,7 +2,7 @@ from pipnet.pipnet import PIPNet, get_network
 from util.log import Log
 import torch.nn as nn
 from util.args import get_args, save_args, get_optimizer_nn
-from util.data import get_dataloaders
+from util.data import get_dataloaders, SubsetSequentialSampler
 from util.func import init_weights_xavier
 from pipnet.train import train_pipnet, test_pipnet
 # from pipnet.test import eval_pipnet, get_thresholds, eval_ood
@@ -23,6 +23,8 @@ import shutil
 from util.phylo_utils import construct_phylo_tree, construct_discretized_phylo_tree
 from util.custom_losses import WeightedCrossEntropyLoss, WeightedNLLLoss, FocalLossWrapper
 from util.vis_hpipnet import save_images_topk
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader, SubsetRandomSampler
 
 import time
 import wandb
@@ -182,6 +184,18 @@ def run_pipnet(args=None):
         print("Classes: ", testloader.dataset.class_to_idx, flush=True)
     else:
         print("Classes: ", str(classes), flush=True)
+
+    if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
+        # Verifying if the classes are left out 
+        unique_labels = set()
+        for xs1, xs2, ys in trainloader:
+            unique_labels.update(ys.tolist())
+        print("trainloader Unique Labels:", unique_labels)
+
+        unique_labels = set()
+        for xs, ys in projectloader:
+            unique_labels.update(ys.tolist())
+        print("projectloader Unique Labels:", unique_labels)
 
     print("Node count:", len(root.nodes_with_children()))
 

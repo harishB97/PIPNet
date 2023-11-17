@@ -251,7 +251,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--viz_loader',
                         type=str,
                         default='projectloader,test_projectloader',
-                        help='Architecture of the reducer net defined in in,out|in,out format'
+                        help='Currently not used'
+                        )
+    parser.add_argument('--leave_out_classes',
+                        type=str,
+                        default='',
+                        help='Comma seperated list of class names'
                         )
 
     
