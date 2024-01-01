@@ -99,6 +99,23 @@ def get_data(args: argparse.Namespace):
                                 args.image_size, args.seed, args.validation_size, 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+    if args.dataset =='CUB-190-imgnet-224':
+        try:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
+            return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
     if args.dataset =='CUB-190':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_190/dataset'
