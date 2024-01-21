@@ -19,15 +19,7 @@ import gc
 
 OOD_LABEL = -1
 
-def ema(byol_tau, online_network, target_network):
-    with torch.no_grad():  # Ensure no gradients are computed for this operation
-        for target_param, online_param in zip(target_network.parameters(), online_network.parameters()):
-            target_param.data = byol_tau * target_param.data + (1 - byol_tau) * online_param.data
-
-def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, \
-                 epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, \
-                 train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, \
-                 minmaximize=False, byol=False, byol_tau_base=0.9995, step_info=None, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = train_loader.dataset
@@ -95,7 +87,6 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     if pretrain:
         align_pf_weight = (epoch/nr_epochs)*1.
         # unif_weight = 0.5
-        byol_weight = 0.5
         align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
@@ -107,7 +98,6 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     else:
         align_pf_weight = 5. 
         # unif_weight = 2. # 0.
-        byol_weight = 0.5
         align_weight = 3. 
         unif_weight = 3. #3. # 0.
         t_weight = 2.
@@ -157,25 +147,16 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Reset the gradients
         optimizer_classifier.zero_grad(set_to_none=True)
         optimizer_net.zero_grad(set_to_none=True)
-
-        additional_network_outputs = {}
         
         # Perform a forward pass through the network
-        if byol:
-            online_network_out, target_network_out, features, proto_features, pooled, out = net(xs)
-            additional_network_outputs['online_network_out'] = online_network_out
-            additional_network_outputs['target_network_out'] = target_network_out
-        else:
-            features, proto_features, pooled, out = net(xs)
+        features, proto_features, pooled, out = net(xs)
         
         loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
-            calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+            calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
                             t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
-                            byol_weight=byol_weight,
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize,\
-                            byol=byol)
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize)
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
@@ -255,14 +236,6 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             total_loss+=loss.item()
 
         # del loss
-
-        if byol:
-            byol_tau = 1 - (((1 - byol_tau_base) * (torch.cos(torch.tensor((torch.pi * step_info['current_step'])/step_info['max_training_steps'])) + 1)) / 2)
-            step_info['current_step'] += 1
-            ema(byol_tau, online_network=net.module._net, target_network=net.module._target_feature_net)
-            ema(byol_tau, online_network=net.module._projector, target_network=net.module._target_projector)
-            # net.module._target_feature_net = (byol_tau * net.module._target_feature_net) + ((1 - byol_tau) * net.module._net)
-            # net.module._target_projector = (byol_tau * net.module._target_projector) + ((1 - byol_tau) * net.module._projector)
 
         if not pretrain:
             with torch.no_grad():
@@ -424,10 +397,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     return train_info, log_dict
 
 
-def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, \
-                epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, \
-                test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, \
-                minmaximize=False, byol=False, byol_tau_base=0.9995, step_info=None, wandb_run=None, pretrain_epochs=0, log:Log=None):
+def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, wandb_run=None, pretrain_epochs=0, log:Log=None):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -475,7 +445,6 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     if pretrain:
         align_pf_weight = (epoch/nr_epochs)*1.
         # unif_weight = 0.5
-        byol_weight = 3.
         align_weight = 3.
         unif_weight = 3.
         t_weight = 0 #5. not required during pretraining
@@ -487,7 +456,6 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     else:
         align_pf_weight = 5. 
         # unif_weight = 2. # 0.
-        byol_weight = 3.
         align_weight = 3. 
         unif_weight = 3. # 0.
         t_weight = 2.
@@ -531,25 +499,16 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             else:
                 xs = torch.cat([xs, xs])
                 ys = torch.cat([ys, ys])
-
-            additional_network_outputs = {}
             
             # Perform a forward pass through the network
-            if byol:
-                online_network_out, target_network_out, features, proto_features, pooled, out = net(xs)
-                additional_network_outputs['online_network_out'] = online_network_out
-                additional_network_outputs['target_network_out'] = target_network_out
-            else:
-                features, proto_features, pooled, out = net(xs)
+            features, proto_features, pooled, out = net(xs)
 
             loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc = \
-            calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+            calculate_loss(net, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
                             t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
-                            byol_weight=byol_weight, \
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize,\
-                           byol=byol, train=False)
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize, train=False)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
@@ -703,10 +662,9 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     return test_info, log_dict
 
 
-def calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
-                    orth_weight, byol_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
-                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, \
-                        align_pf=False, minmaximize=False, byol=False, train=True):
+def calculate_loss(net, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
+                    orth_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
+                    label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, minmaximize=False, train=True):
     batch_names = [label2name[y.item()] for y in ys]
 
     al_and_uni = 0
@@ -726,22 +684,13 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
 
     features1, features2 = features.chunk(2)
 
-    if (not finetune) and byol:
-        online_network_out = additional_network_outputs['online_network_out']
-        target_network_out = additional_network_outputs['target_network_out']
-        online_network_out_1, online_network_out_2 = online_network_out.chunk(2)
-        target_network_out_1, target_network_out_2 = target_network_out.chunk(2)
-        byol_loss = (regression_loss(online_network_out_1, target_network_out_2) + regression_loss(online_network_out_2, target_network_out_1)) / 2.
-        loss += byol_weight * byol_loss
-        losses_used.append('BYOL')
-    else:
-        byol_loss = torch.tensor(-5) # placeholder value
 
     if (not finetune) and align and uni:
         flattened_features1 = flatten_tensor(features1)
         flattened_features2 = flatten_tensor(features2)
         normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
         normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
+
         a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
 
         uni_loss = (uniform_loss(normalized_flattened_features1) \
@@ -765,16 +714,6 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
     else:
         a_loss = torch.tensor(-5) # placeholder value
         uni_loss = torch.tensor(-5) # placeholder value
-
-    if byol:
-        # Calculate alignment between latent spaces, this is only for measurement
-        # a_loss here will NOT be used for backpropagation
-        # a_loss will be added to al_and_uni and then al_and_uni will be added to loss, this is the way it works when backpropagating on a_loss
-        flattened_features1 = flatten_tensor(features1)
-        flattened_features2 = flatten_tensor(features2)
-        normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
-        normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
-        a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
 
 
     for node in root.nodes_with_children():
@@ -868,9 +807,6 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             # using any below because its a relevant prototype if it has strong connection to any one of the class
             relevant_prototype_kernels = prototype_kernels.weight[(classification_layer.weight > 0.001).any(dim=0)]
             kernel_orth_loss[node.name] = orth_dist(relevant_prototype_kernels)
-            loss += orth_dist * kernel_orth_loss[node.name]
-            if not 'KO' in losses_used:
-                losses_used.append('KO')
     
         if not pretrain:
             # finetuning or general training
@@ -977,16 +913,16 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             avg_OOD_loss = None
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                f'L: {loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
             else:
                 avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
     return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, acc
 
 
@@ -1055,15 +991,7 @@ def align_loss(inputs, targets, EPS=1e-12):
 
 # from https://github.com/samaonline/Orthogonal-Convolutional-Neural-Networks/blob/master/imagenet/utils.py
 def orth_dist(mat, stride=None):
-    mat = mat.reshape((mat.shape[0], -1))
+    mat = mat.reshape( (mat.shape[0], -1) )
     if mat.shape[0] < mat.shape[1]:
         mat = mat.permute(1,0)
     return torch.norm( torch.t(mat)@mat - torch.eye(mat.shape[1]).cuda())
-
-def regression_loss(x, y):
-    norm_x, norm_y = F.normalize(x, p=2, dim=1), F.normalize(y, p=2, dim=1)
-    # cosine_similarity = (norm_x * norm_y).sum(dim=-1)
-    # loss = -2. * cosine_similarity.mean()
-    loss = torch.sum((norm_x - norm_y) ** 2, dim=1)
-    loss = loss.mean()
-    return loss

@@ -1,4 +1,4 @@
-from pipnet.pipnet import PIPNet, get_network
+from pipnet.pipnet import PIPNet, get_network, PIPNetBYOL
 from util.log import Log
 import torch.nn as nn
 from util.args import get_args, save_args, get_optimizer_nn
@@ -133,8 +133,8 @@ def run_pipnet(args=None):
     root.assign_all_descendents()
 
     # set pretrain epochs zero if align and uni are not used
-    if (args.align == 'n') and (args.uni == 'n'):
-        args.epochs_pretrain = 0
+    if (args.align == 'n') and (args.uni == 'n') and (args.byol == 'n') and (args.epochs_pretrain > 0):
+        raise Exception('Do not pretrain if not using any pretrain specific losses like align, uni, byol etc.')
 
     # update num of protos per node based on num_protos_per_descendant
     if args.num_features == 0 and args.num_protos_per_descendant == 0:
@@ -220,21 +220,33 @@ def run_pipnet(args=None):
     feature_net, add_on_layers, pool_layer, classification_layers, num_prototypes = get_network(len(classes), args, root)
    
     # Create a PIP-Net
-    net = PIPNet(num_classes=len(classes),
-                    num_prototypes=num_prototypes,
-                    feature_net = feature_net,
-                    args = args,
-                    add_on_layers = add_on_layers,
-                    pool_layer = pool_layer,
-                    classification_layers = classification_layers,
-                    num_parent_nodes = len(root.nodes_with_children()),
-                    root = root
-                    )
+    if args.byol == 'y':
+        net = PIPNetBYOL(num_classes=len(classes),
+                            num_prototypes=num_prototypes,
+                            feature_net = feature_net,
+                            args = args,
+                            add_on_layers = add_on_layers,
+                            pool_layer = pool_layer,
+                            classification_layers = classification_layers,
+                            num_parent_nodes = len(root.nodes_with_children()),
+                            root = root
+                            )
+    else:
+        net = PIPNet(num_classes=len(classes),
+                        num_prototypes=num_prototypes,
+                        feature_net = feature_net,
+                        args = args,
+                        add_on_layers = add_on_layers,
+                        pool_layer = pool_layer,
+                        classification_layers = classification_layers,
+                        num_parent_nodes = len(root.nodes_with_children()),
+                        root = root
+                        )
     net = net.to(device=device)
     net = nn.DataParallel(net, device_ids = device_ids)    
 
-    print(net)
-    
+    # print(net)
+
     optimizer_net, optimizer_classifier, params_to_freeze, params_to_train, params_backbone = get_optimizer_nn(net, args)   
 
     # Initialize or load model
@@ -325,7 +337,7 @@ def run_pipnet(args=None):
     with torch.no_grad():
         xs1, _, _ = next(iter(trainloader))
         xs1 = xs1.to(device)
-        features, proto_features, _, _ = net(xs1)
+        features, proto_features, _, _ = net(xs1, inference=True)
         wshape = proto_features['root'].shape[-1]
         args.wshape = wshape #needed for calculating image patch size
         print("Output shape: ", proto_features['root'].shape, flush=True)
@@ -341,6 +353,8 @@ def run_pipnet(args=None):
     
     lrs_pretrain_net = []
     # ------------------------- PRETRAINING PROTOTYPES PHASE -------------------------
+    max_pretraining_steps = len(trainloader_pretraining) * args.epochs_pretrain
+    step_info_pretraining = {'current_step': 0, 'max_training_steps': max_pretraining_steps}
     for epoch in range(1, args.epochs_pretrain+1):
         for param in params_to_train:
             param.requires_grad = True
@@ -360,13 +374,21 @@ def run_pipnet(args=None):
             param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
         
         print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
-        
+
         # Pretrain prototypes
-        train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
-                                            scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
-                                            pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, log=log)
+        if args.byol == 'y':
+            train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
+                                    scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
+                                    pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
+                                    tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                    minmaximize=args.minmaximize == 'y', byol=True, byol_tau_base=0.9995, step_info=step_info_pretraining, \
+                                    wandb_run=wandb_run, log=log)
+        else:
+            train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
+                                                scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
+                                                pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
+                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, log=log)
         # wandb_run.log(log_dict, step=epoch)
         # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
         lrs_pretrain_net+=train_info['lrs_net']
@@ -403,7 +425,9 @@ def run_pipnet(args=None):
     frozen = True
     lrs_net = []
     lrs_classifier = []
-   
+    
+    max_training_steps = len(trainloader) * args.epochs
+    step_info_training = {'current_step': 0, 'max_training_steps': max_training_steps}
     for epoch in range(1, args.epochs + 1):                      
         epochs_to_finetune = args.epochs_finetune #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
@@ -475,21 +499,39 @@ def run_pipnet(args=None):
                     class_name = node_label_to_children[class_label]
                     print(f'Num protos for {node.name} class', class_name, torch.nonzero(classification_weights[class_label, :] > 1e-3).shape[0])
 
-        train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
-                                  scheduler_net, scheduler_classifier, criterion, epoch, \
-                                    args.epochs, device, pretrain=False, finetune=finetune, \
-                                    train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
-                                          tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                           minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+        if args.byol == 'y':
+            train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
+                                    scheduler_net, scheduler_classifier, criterion, epoch, \
+                                        args.epochs, device, pretrain=False, finetune=finetune, \
+                                        train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                            minmaximize=args.minmaximize == 'y', byol=True, byol_tau_base=0.9995, step_info=step_info_training, \
+                                                wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+        else:
+            train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
+                                    scheduler_net, scheduler_classifier, criterion, epoch, \
+                                        args.epochs, device, pretrain=False, finetune=finetune, \
+                                        train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         
         if (epoch==args.epochs or epoch%5==0) and args.epochs>1:
-            test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
-                                    scheduler_net, scheduler_classifier, criterion, epoch, \
-                                        args.epochs, device, pretrain=False, finetune=finetune, \
-                                        test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
-                                            minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+            if args.byol == 'y':
+                test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
+                                        scheduler_net, scheduler_classifier, criterion, epoch, \
+                                            args.epochs, device, pretrain=False, finetune=finetune, \
+                                            test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
+                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                minmaximize=args.minmaximize == 'y', byol=True, byol_tau_base=0.9995, step_info=step_info_training, \
+                                                wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
+            else:
+                test_info, log_dict = test_pipnet(net, testloader, optimizer_net, optimizer_classifier, \
+                                        scheduler_net, scheduler_classifier, criterion, epoch, \
+                                            args.epochs, device, pretrain=False, finetune=finetune, \
+                                            test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
+                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log)
 
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')

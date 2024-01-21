@@ -9,7 +9,7 @@ from torch import Tensor
 from util.node import Node
 import numpy as np
 from collections import defaultdict, OrderedDict
-from pipnet_byol.pipnet_byol import PIPNetBYOL
+from copy import deepcopy
 
 def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
@@ -31,7 +31,7 @@ class GumbelSoftmax(nn.Module):
         return F.gumbel_softmax(logits, tau=self.tau, hard=self.hard, dim=self.dim)
 
 
-class PIPNet(nn.Module):
+class PIPNetBYOL(nn.Module):
     def __init__(self,
                  num_classes: int,
                  num_prototypes: int,
@@ -44,11 +44,36 @@ class PIPNet(nn.Module):
                  root: Node
                  ):
         super().__init__()
+
+        MLP_HIDDEN_SIZE = 3072
+
         assert num_classes > 0
         self._num_features = args.num_features
         self._num_classes = num_classes
         # self._num_prototypes = num_prototypes # this is only the minimum number of protos per node, might vary for each node
         self._net = feature_net
+
+        self._projector = nn.Sequential(
+                            nn.Conv2d(in_channels=add_on_layers['root'].in_channels, out_channels=MLP_HIDDEN_SIZE, kernel_size=1, stride = 1, padding=0, bias=True),
+                            nn.BatchNorm2d(MLP_HIDDEN_SIZE, eps=1e-5, momentum=0.1),
+                            nn.ReLU(),
+                            nn.Conv2d(in_channels=MLP_HIDDEN_SIZE, out_channels=add_on_layers['root'].in_channels, kernel_size=1, stride = 1, padding=0, bias=True),
+                        )
+        self._predictor = nn.Sequential(
+                            nn.Conv2d(in_channels=add_on_layers['root'].in_channels, out_channels=MLP_HIDDEN_SIZE, kernel_size=1, stride = 1, padding=0, bias=True),
+                            nn.BatchNorm2d(MLP_HIDDEN_SIZE, eps=1e-5, momentum=0.1),
+                            nn.ReLU(),
+                            nn.Conv2d(in_channels=MLP_HIDDEN_SIZE, out_channels=add_on_layers['root'].in_channels, kernel_size=1, stride = 1, padding=0, bias=True),
+                        )
+        # self._target_net = nn.Sequential(
+        #                     feature_net.clone(),
+        #                     self._projector.clone()
+        #                 )
+        self._target_feature_net = deepcopy(self._net)#.clone()
+        self._target_projector = deepcopy(self._projector)#.clone()
+        self._target_feature_net.requires_grad = False
+        self._target_projector.requires_grad = False
+
         # self._add_on = add_on_layers
         for node_name in add_on_layers:
             setattr(self, '_'+node_name+'_add_on', add_on_layers[node_name])
@@ -76,8 +101,13 @@ class PIPNet(nn.Module):
             raise Exception('Use either softmax or gumbel softmax when using multiply_cs_softmax')
 
     
-    def forward(self, xs,  inference=False):
+    def forward(self, xs, inference=False):
         features = self._net(xs) 
+
+        if not inference:
+            online_network_out = self._predictor(self._projector(features))
+            target_network_out = self._target_projector(self._target_feature_net(xs))
+
         proto_features = {}
         proto_features_cs = {}
         proto_features_softmaxed = {}
@@ -110,9 +140,20 @@ class PIPNet(nn.Module):
 
             if inference:
                 pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
+                
             out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
 
-        return features, proto_features, pooled, out
+        # self._root._classification.weight.requires_grad 
+        # getattr(self, '_'+'root'+'_classification').weight.requires_grad
+        # pooled['root'].requires_grad
+        # proto_features['root'].requires_grad
+        # getattr(self, '_'+'root'+'_add_on').weight.requires_grad
+        # features.requires_grad
+
+        if inference:
+            return features, proto_features, pooled, out
+        else:
+            return online_network_out, target_network_out, features, proto_features, pooled, out
     
     def get_joint_distribution(self, out, device='cuda'):
         batch_size = out['root'].size(0)
