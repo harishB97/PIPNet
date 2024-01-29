@@ -181,10 +181,25 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use minmaximize loss or not.'
                         )
+    parser.add_argument('--cluster_desc',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use descendant specific cluster (overspecificity) loss or not.'
+                        )
+    parser.add_argument('--sep_desc',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use descendant specific seperation loss or not.'
+                        )
+    parser.add_argument('--subspace_sep',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use subspace seperation loss or not.'
+                        )
     parser.add_argument('--softmax',
                         type=str,
                         default='n',
-                        help='(y/n) Flag that indicates whether to use softmax on the inner product between prototype and latent patch. Takes precedence over gumbel_softmax'
+                        help='(y/n or y|softmax_tau) Flag that indicates whether to use softmax on the inner product between prototype and latent patch. Takes precedence over gumbel_softmax'
                         )
     parser.add_argument('--gumbel_softmax',
                         type=str,
@@ -201,6 +216,11 @@ def get_args() -> argparse.Namespace:
                         help='(y/n) Flag that indicates whether to multiply cosine similarity and softmax. Must have anyone of softmax or gumbel_softmax turned ON'
                         )
     parser.add_argument('--unitconv2d',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use UnitConv2D or nn.Conv2D between prototypes and features'
+                        )
+    parser.add_argument('--projectconv2d',
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use UnitConv2D or nn.Conv2D between prototypes and features'
@@ -249,9 +269,14 @@ def get_args() -> argparse.Namespace:
                         default='',
                         help='Basic gaussian multiplier that does multiplies after guassian by a fixed value, set sigma and factor ex 3,4|sigma|factor'
                         )
+    parser.add_argument('--sg_before_protos',
+                        type=str,
+                        default='n',
+                        help='Stop gradient before the prototype layer'
+                        )
     parser.add_argument('--viz_loader',
                         type=str,
-                        default='projectloader,test_projectloader',
+                        default='projectloader,test_loader,test_projectloader',
                         help='Currently not used'
                         )
     parser.add_argument('--leave_out_classes',
@@ -263,6 +288,11 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='BYOL style contrastive learning applied to patches'
+                        )
+    parser.add_argument('--disable_transform2',
+                        type=str,
+                        default='n',
+                        help='Disables the second transform which affects color, contrast, saturations etc.'
                         )
 
     
@@ -569,6 +599,266 @@ def get_optimizer_nn_byol2(net, args: argparse.Namespace) -> torch.optim.Optimiz
     else:
         raise ValueError("this optimizer type is not implemented")
 
+def get_optimizer_nn_byol3(net, args: argparse.Namespace) -> torch.optim.Optimizer:
+
+    """
+    Not training batch norm weight and bias in batchnorm layer
+    No SGD or LARS
+    """
+
+    #create parameter groups
+    params_to_freeze = {}
+    params_to_train = {}
+    params_backbone = {}
+    # set up optimizer
+    if 'resnet50' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.2' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            elif 'layer2' in name:
+                params_backbone[name] = param
+            else: #such that model training fits on one gpu. 
+                param.requires_grad = False
+                # params_backbone.append(param)
+    elif 'resnet18' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.1' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone[name] = param
+    elif 'resnet34' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.2' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone[name] = param
+    elif 'convnext' in args.net:
+        print("chosen network is convnext", flush=True)
+        for name,param in net.module._net.named_parameters():
+            if 'features.7.2' in name: 
+                params_to_train[name] = param
+            elif 'stage4_reducer' in name:
+                params_to_train[name] = param
+            elif 'features.7' in name or 'features.6' in name:
+                params_to_freeze[name] = param
+            # CUDA MEMORY ISSUES? COMMENT LINE 202-203 AND USE THE FOLLOWING LINES INSTEAD
+            # elif 'features.5' in name or 'features.4' in name:
+            #     params_backbone.append(param)
+            # else:
+            #     param.requires_grad = False
+            else:
+                params_backbone[name] = param
+    else:
+        print("Network is not ResNet or ConvNext.", flush=True)     
+
+    classification_weight = []
+    classification_bias = []
+    for attr in dir(net.module):
+        if attr.endswith('_classification'):
+            for name, param in getattr(net.module, attr).named_parameters():
+                if 'weight' in name:
+                    classification_weight.append(param)
+                elif 'multiplier' in name:
+                    param.requires_grad = False # TBC remove/move this if the parameter is moved to pipnet
+                else:
+                    if args.bias:
+                        classification_bias.append(param)
+
+    paramlist_classifier = [
+            {"params": classification_weight, "lr": args.lr, "weight_decay_rate": args.weight_decay},
+            {"params": classification_bias, "lr": args.lr, "weight_decay_rate": 0},
+    ]
+    
+    paramlist_add_on = []
+    for attr in dir(net.module):
+        if attr.endswith('_add_on'):
+            paramlist_add_on.append({"params": getattr(net.module, attr).parameters(), "lr": args.lr_block*10., "weight_decay_rate": args.weight_decay})
+    
+    params_backbone_lars, params_backbone_non_lars = exclude_bias_and_batchnorm(params_backbone)
+    params_to_freeze_lars, params_to_freeze_non_lars = exclude_bias_and_batchnorm(params_to_freeze)
+    params_to_train_lars, params_to_train_non_lars = exclude_bias_and_batchnorm(params_to_train)
+
+    params_projector_non_lars = [param for name, param in net.module._projector.named_parameters()][2:4] # [name for name, param in net.module._projector.named_parameters()]
+    params_projector_lars = [param for name, param in net.module._projector.named_parameters()][:2]
+    params_projector_lars += [param for name, param in net.module._projector.named_parameters()][4:]
+
+    params_predictor_non_lars = [param for name, param in net.module._predictor.named_parameters()][2:4]
+    params_predictor_lars = [param for name, param in net.module._predictor.named_parameters()][:2]
+    params_predictor_lars += [param for name, param in net.module._predictor.named_parameters()][4:]
+
+    # params_projector_lars, params_projector_non_lars = exclude_bias_and_batchnorm({name: param for name, param in net.module._projector.named_parameters()})
+    # params_predictor_lars, params_predictor_non_lars = exclude_bias_and_batchnorm({name: param for name, param in net.module._predictor.named_parameters()})
+
+    paramlist_net_non_lars = [{"params": params_backbone_non_lars, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_to_freeze_non_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_to_train_non_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_projector_non_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_predictor_non_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay}]
+    
+    paramlist_net_lars = [{"params": params_backbone_lars, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
+                            {"params": params_to_freeze_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                            {"params": params_to_train_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                            {"params": params_projector_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay},
+                            {"params": params_predictor_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay}]
+
+    optimizer_net_lars = LARS(optimizer=torch.optim.SGD(paramlist_net_lars, lr=0.1, momentum=0.9, weight_decay=1.5e-6), trust_coef=1e-3)
+    # optimizer_net_non_lars = torch.optim.SGD(paramlist_net_non_lars, lr=0.1, momentum=0.9, weight_decay=0.0)
+    if args.optimizer == 'Adam':
+        optimizer_add_on = torch.optim.AdamW(paramlist_add_on,lr=args.lr,weight_decay=args.weight_decay)
+        optimizer_classifier = torch.optim.AdamW(paramlist_classifier,lr=args.lr,weight_decay=args.weight_decay)
+    else:
+        raise ValueError("this optimizer type is not implemented")
+    
+    optimizer_net = CombinedOptimizer([optimizer_net_lars, optimizer_add_on])
+    # optimizer_net = CombinedOptimizer([optimizer_net_lars, optimizer_net_non_lars, optimizer_add_on])
+
+    return optimizer_net, optimizer_classifier, list(params_to_freeze.values()), list(params_to_train.values()), list(params_backbone.values())
+
+def get_optimizer_nn_byol4(net, args: argparse.Namespace) -> torch.optim.Optimizer:
+
+    """
+    Not training batch norm weight and bias in batchnorm layer
+    No SGD or LARS
+    """
+
+    #create parameter groups
+    params_to_freeze = {}
+    params_to_train = {}
+    params_backbone = {}
+    # set up optimizer
+    if 'resnet50' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.2' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            elif 'layer2' in name:
+                params_backbone[name] = param
+            else: #such that model training fits on one gpu. 
+                param.requires_grad = False
+                # params_backbone.append(param)
+    elif 'resnet18' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.1' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone[name] = param
+    elif 'resnet34' in args.net: 
+        # freeze resnet50 except last convolutional layer
+        for name,param in net.module._net.named_parameters():
+            if 'layer4.2' in name:
+                params_to_train[name] = param
+            elif 'layer4' in name or 'layer3' in name:
+                params_to_freeze[name] = param
+            # elif 'layer2' in name:
+            #     params_backbone.append(param)
+            else: #such that model training fits on one gpu. 
+                # param.requires_grad = False
+                params_backbone[name] = param
+    elif 'convnext' in args.net:
+        print("chosen network is convnext", flush=True)
+        for name,param in net.module._net.named_parameters():
+            if 'features.7.2' in name: 
+                params_to_train[name] = param
+            elif 'stage4_reducer' in name:
+                params_to_train[name] = param
+            elif 'features.7' in name or 'features.6' in name:
+                params_to_freeze[name] = param
+            # CUDA MEMORY ISSUES? COMMENT LINE 202-203 AND USE THE FOLLOWING LINES INSTEAD
+            # elif 'features.5' in name or 'features.4' in name:
+            #     params_backbone.append(param)
+            # else:
+            #     param.requires_grad = False
+            else:
+                params_backbone[name] = param
+    else:
+        print("Network is not ResNet or ConvNext.", flush=True)     
+
+    classification_weight = []
+    classification_bias = []
+    for attr in dir(net.module):
+        if attr.endswith('_classification'):
+            for name, param in getattr(net.module, attr).named_parameters():
+                if 'weight' in name:
+                    classification_weight.append(param)
+                elif 'multiplier' in name:
+                    param.requires_grad = False # TBC remove/move this if the parameter is moved to pipnet
+                else:
+                    if args.bias:
+                        classification_bias.append(param)
+
+    paramlist_classifier = [
+            {"params": classification_weight, "lr": args.lr, "weight_decay_rate": args.weight_decay},
+            {"params": classification_bias, "lr": args.lr, "weight_decay_rate": 0},
+    ]
+    
+    paramlist_add_on = []
+    for attr in dir(net.module):
+        if attr.endswith('_add_on'):
+            paramlist_add_on.append({"params": getattr(net.module, attr).parameters(), "lr": args.lr_block*10., "weight_decay_rate": args.weight_decay})
+    
+    params_backbone_lars, params_backbone_non_lars = exclude_bias_and_batchnorm(params_backbone)
+    params_to_freeze_lars, params_to_freeze_non_lars = exclude_bias_and_batchnorm(params_to_freeze)
+    params_to_train_lars, params_to_train_non_lars = exclude_bias_and_batchnorm(params_to_train)
+
+    params_projector_non_lars = [param for name, param in net.module._projector.named_parameters()][2:4] # [name for name, param in net.module._projector.named_parameters()]
+    params_projector_lars = [param for name, param in net.module._projector.named_parameters()][:2]
+    params_projector_lars += [param for name, param in net.module._projector.named_parameters()][4:]
+
+    params_predictor_non_lars = [param for name, param in net.module._predictor.named_parameters()][2:4]
+    params_predictor_lars = [param for name, param in net.module._predictor.named_parameters()][:2]
+    params_predictor_lars += [param for name, param in net.module._predictor.named_parameters()][4:]
+
+    # params_projector_lars, params_projector_non_lars = exclude_bias_and_batchnorm({name: param for name, param in net.module._projector.named_parameters()})
+    # params_predictor_lars, params_predictor_non_lars = exclude_bias_and_batchnorm({name: param for name, param in net.module._predictor.named_parameters()})
+
+    paramlist_net_non_lars = [{"params": params_backbone_non_lars, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_to_freeze_non_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_to_train_non_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_projector_non_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay},
+                                 {"params": params_predictor_non_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay}]
+    
+    paramlist_net_lars = [{"params": params_backbone_lars, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
+                            {"params": params_to_freeze_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                            {"params": params_to_train_lars, "lr": args.lr_block, "weight_decay_rate": args.weight_decay},
+                            {"params": params_projector_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay},
+                            {"params": params_predictor_lars, "lr": args.lr_block*10, "weight_decay_rate": args.weight_decay}]
+
+    # optimizer_net_lars = LARS(optimizer=torch.optim.SGD(paramlist_net_lars, lr=0.1, momentum=0.9, weight_decay=1.5e-6), trust_coef=1e-3)
+    optimizer_net_adamW = torch.optim.AdamW(paramlist_net_lars,lr=args.lr,weight_decay=args.weight_decay)
+    # optimizer_net_non_lars = torch.optim.SGD(paramlist_net_non_lars, lr=0.1, momentum=0.9, weight_decay=0.0)
+    if args.optimizer == 'Adam':
+        optimizer_add_on = torch.optim.AdamW(paramlist_add_on,lr=args.lr,weight_decay=args.weight_decay)
+        optimizer_classifier = torch.optim.AdamW(paramlist_classifier,lr=args.lr,weight_decay=args.weight_decay)
+    else:
+        raise ValueError("this optimizer type is not implemented")
+    
+    optimizer_net = CombinedOptimizer([optimizer_net_adamW, optimizer_add_on])
+    # optimizer_net = CombinedOptimizer([optimizer_net_lars, optimizer_net_non_lars, optimizer_add_on])
+
+    return optimizer_net, optimizer_classifier, list(params_to_freeze.values()), list(params_to_train.values()), list(params_backbone.values())
 
 
 def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:

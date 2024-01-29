@@ -189,6 +189,13 @@ class Node:
         self.descendents = descendents
 
     def assign_leaf_descendents(self):
+
+        if self.is_leaf():
+            # if child is itself a leaf node it is mapped to itself
+            self.leaf_descendents = set([self.name])
+            self.leaf_descendents_of_child = defaultdict(set) 
+            return
+            
         active_nodes = []
         active_nodes += self.children
         # set of all leaf descendents on both side

@@ -10,6 +10,7 @@ from util.node import Node
 import numpy as np
 from collections import defaultdict, OrderedDict
 from copy import deepcopy
+# from pipnet.pipnet import UnitConv2D, ProjectConv2D
 
 def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
@@ -88,7 +89,7 @@ class PIPNetBYOL(nn.Module):
         # self._classification = classification_layers
         self._multiplier = nn.Parameter(torch.ones((1,),requires_grad=True)) # this can directly be set to 2.0 and requires_grad=False, not sure why its not done
         # self._multiplier = classification_layers.normalization_multiplier 
-        if args.softmax == 'y':
+        if args.softmax.split('|')[0] == 'y':
             self._softmax = nn.Softmax(dim=1)
         elif args.gumbel_softmax == 'y':
             self._gumbel_softmax = GumbelSoftmax(tau=args.gs_tau, hard=False, dim=1)
@@ -97,7 +98,7 @@ class PIPNetBYOL(nn.Module):
 
         self.args = args
 
-        if (args.multiply_cs_softmax == 'y') and not (args.softmax == 'y' or args.gumbel_softmax == 'y'):
+        if (args.multiply_cs_softmax == 'y') and not (args.softmax.split('|')[0] == 'y' or args.gumbel_softmax == 'y'):
             raise Exception('Use either softmax or gumbel softmax when using multiply_cs_softmax')
 
     
@@ -113,14 +114,25 @@ class PIPNetBYOL(nn.Module):
         proto_features_softmaxed = {}
         pooled = {}
         out = {}
+
+        # if self.args.sg_before_protos == 'y':
+        #     proto_layer_input_features = features.clone().detach()
+        # else:
+        proto_layer_input_features = features
+
         for node in self.root.nodes_with_children():
-            proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(features)
+            proto_features[node.name] = getattr(self, '_'+node.name+'_add_on')(proto_layer_input_features)
 
             if isinstance(getattr(self, '_'+node.name+'_add_on'), UnitConv2D):
                 proto_features[node.name] = torch.abs(proto_features[node.name])
 
-            if self.args.softmax == 'y':
-                softmax_tau = 0.2
+            if self.args.softmax.split('|')[0] == 'y':
+                if len(self.args.softmax.split('|')) > 1:
+                    softmax_tau = int(self.args.softmax.split('|')[1])
+                else:
+                    if isinstance(getattr(self, '_'+node.name+'_add_on'), ProjectConv2D):
+                        raise Exception('Do not use softmax temp 0.2 for project distance')
+                    softmax_tau = 0.2
                 proto_features[node.name] = proto_features[node.name] / softmax_tau
                 proto_features_softmaxed[node.name] = self._softmax(proto_features[node.name])
                 proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
@@ -130,7 +142,7 @@ class PIPNetBYOL(nn.Module):
 
             if self.args.multiply_cs_softmax == 'y':
                 prototypes = getattr(self, '_'+node.name+'_add_on')
-                cosine_similarity = functional_UnitConv2D(features, prototypes.weight, prototypes.bias)
+                cosine_similarity = functional_UnitConv2D(proto_layer_input_features, prototypes.weight, prototypes.bias)
                 proto_features[node.name] = cosine_similarity * proto_features_softmaxed[node.name]
 
             pooled[node.name] = self._pool(proto_features[node.name])
@@ -219,6 +231,19 @@ class UnitConv2D(nn.Conv2d):
         else:
             normalized_bias = None
         return self._conv_forward(normalized_input, normalized_weight, normalized_bias)
+
+class ProjectConv2D(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
+        super(ProjectConv2D, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+
+    def forward(self, input):
+        normalized_weight = F.normalize(self.weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
+
+        if self.bias is not None:
+            normalized_bias = F.normalize(self.bias.data, p=2, dim=0) # Normalize the kernels to unit vectors
+        else:
+            normalized_bias = None
+        return self._conv_forward(input, normalized_weight, normalized_bias)
 
 def get_network(num_classes: int, args: argparse.Namespace, root=None): 
     features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)

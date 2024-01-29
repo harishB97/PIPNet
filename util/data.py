@@ -91,14 +91,16 @@ def get_data(args: argparse.Namespace):
                                 '/home/harishbabu/data/CUB_200_2011/dataset/test_crop', 
                                 args.image_size, args.seed, args.validation_size, 
                                 '/home/harishbabu/data/CUB_200_2011/dataset/train', 
-                                '/home/harishbabu/data/CUB_200_2011/dataset/test_full')
+                                '/home/harishbabu/data/CUB_200_2011/dataset/test_full',
+                                disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset =='CUB-190-imgnet':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
                                 args.image_size, args.seed, args.validation_size, 
                                 '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+                                '/fastscratch/harishbabu/data/CUB_190_pt/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full',
+                                disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset =='CUB-190-imgnet-224':
         try:
             base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
@@ -107,7 +109,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
             return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
@@ -115,7 +118,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     if args.dataset =='CUB-190':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_190/dataset'
@@ -124,7 +128,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_190/dataset'
             return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
@@ -132,7 +137,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     if args.dataset =='CUB-27-imgnet-224':
         try:
             
@@ -141,14 +147,16 @@ def get_data(args: argparse.Namespace):
                                     '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
                                     args.image_size, args.seed, args.validation_size, 
                                     '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+                                    '/fastscratch/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full',
+                                    disable_transform2 = args.disable_transform2 == 'y')
         except:
             return get_birds(True, '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
                                     args.image_size, args.seed, args.validation_size, 
                                     '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+                                    '/projects/ml4science/harishbabu/data/CUB_27_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full',
+                                    disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset =='CUB-08-imgnet-224':
         try:
             return get_birds(True, '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', # train_dir
@@ -156,14 +164,16 @@ def get_data(args: argparse.Namespace):
                                     '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', # train_dir_pretrain
-                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop') # test_dir_projection, modified to crop prev full imgs was used
+                                    '/fastscratch/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop',
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection, modified to crop prev full imgs was used
         except:
             return get_birds(True, '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc_crop', 
                                     '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
                                     '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_crop', 
                                     args.image_size, args.seed, args.validation_size, 
                                     '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/train_segmented_imagenet_background_27spc', 
-                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full')
+                                    '/projects/ml4science/harishbabu/data/CUB_08_pipnet_224/dataset_segmented_imgnet_pipnet/test_segmented_imagenet_background_27spc_full',
+                                    disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset =='CUB-27-224':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_27_224/dataset/'
@@ -172,7 +182,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/home/harishbabu/data/CUB_27_224/dataset/'
             return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
@@ -180,7 +191,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     if args.dataset =='CUB-18-imgnet-224':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_18_pipnet_224/dataset_segmented_imgnet_pipnet'
@@ -189,7 +201,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_18_pipnet_224/dataset_segmented_imgnet_pipnet'
             return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
@@ -197,7 +210,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     if args.dataset =='CUB-18-imgnet-bg-224':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_18_imgnet_bg_224/dataset_segmented_imgnet_pt'
@@ -206,7 +220,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_18_imgnet_bg_224/dataset_segmented_imgnet_pt'
             return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
@@ -214,7 +229,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_segmented_imagenet_background_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     
     if args.dataset =='CUB-29-imgnet-224':
         try:
@@ -224,7 +240,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_29_pipnet_224/dataset_segmented_imgnet_pt'
             return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
@@ -232,7 +249,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_crop'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
 
     if args.dataset =='CUB-18-224':
         try:
@@ -242,7 +260,8 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_bb_crop_224'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain, using the same as train_dir but its different in other dataset definitions
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection, using the same as test_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection, using the same as test_dir but its different in other dataset definitions
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_18_pipnet_224_with_bg'
             return get_birds(True, os.path.join(base_path, 'train_bb_crop_224'), # train_dir
@@ -250,14 +269,16 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'test_bb_crop_224'), # test_dir
                                     args.image_size, args.seed, args.validation_size, 
                                     os.path.join(base_path, 'train'), # train_dir_pretrain, using the same as train_dir but its different in other dataset definitions
-                                    os.path.join(base_path, 'test_full')) # test_dir_projection, using the same as test_dir but its different in other dataset definitions
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection, using the same as test_dir but its different in other dataset definitions
     if args.dataset =='CUB-190-imgnet-reduced':
         return get_birds(True, '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background_crop', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_crop', 
                                 args.image_size, args.seed, args.validation_size, 
                                 '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/train_segmented_imagenet_background', 
-                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full')
+                                '/fastscratch/harishbabu/data/CUB_190_pt_reduced/dataset_segmented_imgnet_pt/test_segmented_imagenet_background_full',
+                                disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset == 'pets':
         return get_pets(True, './data/PETS/dataset/train','./data/PETS/dataset/train','./data/PETS/dataset/test', args.image_size, args.seed, args.validation_size)
     if args.dataset == 'partimagenet': #use --validation_size of 0.2
@@ -596,7 +617,7 @@ def get_partimagenet(augment:bool, train_dir:str, project_dir: str, test_dir:str
 
     return create_datasets(transform1, transform2, transform_no_augment, 3, train_dir, project_dir, test_dir, seed, validation_size)
 
-def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_size: int, seed:int, validation_size:float, train_dir_pretrain = None, test_dir_projection = None): 
+def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_size: int, seed:int, validation_size:float, train_dir_pretrain = None, test_dir_projection = None, disable_transform2=False): 
     shape = (3, img_size, img_size)
     mean = (0.485, 0.456, 0.406)
     std = (0.229, 0.224, 0.225)
@@ -620,12 +641,21 @@ def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_
             transforms.RandomHorizontalFlip(),
             transforms.RandomResizedCrop(img_size+4, scale=(0.95, 1.))
         ])
-        transform2 = transforms.Compose([
-                            TrivialAugmentWideNoShape(),
-                            transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
-                            transforms.ToTensor(),
-                            normalize
-                            ])
+        if disable_transform2:
+            # Disable TrivialAugmentWideNoShape
+            transform2 = transforms.Compose([
+                                # TrivialAugmentWideNoShape(),
+                                transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
+                                transforms.ToTensor(),
+                                normalize
+                                ])
+        else:
+            transform2 = transforms.Compose([
+                                TrivialAugmentWideNoShape(),
+                                transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
+                                transforms.ToTensor(),
+                                normalize
+                                ])
     else:
         transform1 = transform_no_augment    
         transform2 = transform_no_augment           
