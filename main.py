@@ -2,7 +2,7 @@ from pipnet.pipnet import PIPNet, get_network, PIPNetBYOL
 from util.log import Log
 import torch.nn as nn
 from util.args import get_args, save_args, get_optimizer_nn
-from util.data import get_dataloaders, SubsetSequentialSampler
+from util.data import get_dataloaders, SubsetSequentialSampler, unshuffle_dataloader
 from util.func import init_weights_xavier
 from pipnet.train import train_pipnet, test_pipnet
 # from pipnet.test import eval_pipnet, get_thresholds, eval_ood
@@ -75,7 +75,7 @@ def run_pipnet(args=None):
         os.environ['WANDB_DISABLED'] = 'true'
         print('Disabled wand')
 
-    if (args.align_pf == 'y') and not (args.softmax == 'y' or args.gumbel_softmax == 'y'):
+    if (args.align_pf == 'y') and not ('y' in args.softmax or args.gumbel_softmax == 'y'):
         raise Exception('Use align_pf loss only when softmax or gumbel softmax is turned on')
 
     if (args.minmaximize == 'y') and (args.protopool == 'y'):
@@ -134,7 +134,7 @@ def run_pipnet(args=None):
     root.assign_all_descendents()
 
     # set pretrain epochs zero if align and uni are not used
-    if (args.align == 'n') and (args.uni == 'n') and (args.byol.split('|')[0] == 'n') and (args.epochs_pretrain > 0):
+    if (args.align == 'n') and (args.uni == 'n') and (args.align_pf == 'n') and (args.tanh == 'n') and (args.byol.split('|')[0] == 'n') and (args.epochs_pretrain > 0):
         raise Exception('Do not pretrain if not using any pretrain specific losses like align, uni, byol etc.')
 
     # update num of protos per node based on num_protos_per_descendant
@@ -373,8 +373,6 @@ def run_pipnet(args=None):
     for epoch in range(1, args.epochs_pretrain+1):
         for param in params_to_train:
             param.requires_grad = True
-        # for param in net.module._add_on.parameters():
-        #     param.requires_grad = True
         for attr in dir(net.module):
             if attr.endswith('_add_on'):
                 for param in getattr(net.module, attr).parameters():
@@ -388,6 +386,23 @@ def run_pipnet(args=None):
         for param in params_backbone:
             param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
         
+        # # IMPORTANT: Remove this later added for freezing backbone entirely during training
+        # print('IMPORTANT: Fully frozen backbone')
+        # for attr in dir(net.module):
+        #     if attr.endswith('_add_on'):
+        #         for param in getattr(net.module, attr).parameters():
+        #             param.requires_grad = True
+        # for attr in dir(net.module):
+        #     if attr.endswith('_classification'):
+        #         for param in getattr(net.module, attr).parameters():
+        #             param.requires_grad = False
+        # for param in params_to_train:
+        #     param.requires_grad = False
+        # for param in params_to_freeze:
+        #     param.requires_grad = False # can be set to False when you want to freeze more layers
+        # for param in params_backbone:
+        #     param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
+
         print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
 
         # Pretrain prototypes
@@ -395,7 +410,7 @@ def run_pipnet(args=None):
             train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
                                     scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
                                     pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                    tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                    tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                     minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
                                     byol=True, byol_tau_base=byol_tau_base, byol_tau_max=byol_tau_max, step_info=step_info_pretraining, \
                                     wandb_run=wandb_run, log=log, args=args)
@@ -403,7 +418,7 @@ def run_pipnet(args=None):
             train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
                                                 scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
                                                 pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                                 minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y',\
                                                  wandb_run=wandb_run, log=log, args=args)
         # wandb_run.log(log_dict, step=epoch)
@@ -422,7 +437,7 @@ def run_pipnet(args=None):
     #     if 'convnext' in args.net and args.epochs_pretrain > 0:
     #         for node in root.nodes_with_children():
     #             topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
-        
+    
     # ------------------------- SECOND TRAINING PHASE -------------------------
     # re-initialize optimizers and schedulers for second training phase
     optimizer_net, optimizer_classifier, params_to_freeze, params_to_train, params_backbone = get_optimizer_nn(net, args)            
@@ -435,9 +450,9 @@ def run_pipnet(args=None):
     for param in net.module.parameters():
         param.requires_grad = False
     for attr in dir(net.module):
-            if attr.endswith('_classification'):
-                for param in getattr(net.module, attr).parameters():
-                    param.requires_grad = True
+        if attr.endswith('_classification'):
+            for param in getattr(net.module, attr).parameters():
+                param.requires_grad = True
     
     frozen = True
     lrs_net = []
@@ -447,9 +462,48 @@ def run_pipnet(args=None):
     step_info_training = {'current_step': 0, 'max_training_steps': max_training_steps}
     for epoch in range(1, args.epochs + 1):                      
         epochs_to_finetune = args.epochs_finetune #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
-        if epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
+        if epoch <= args.epochs_finetune_classifier:
+            for attr in dir(net.module):
+                if attr.endswith('_classification'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = True
+            for attr in dir(net.module):
+                if attr.endswith('_add_on'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = False # True # False
+            for param in params_to_train:
+                param.requires_grad = False
+            for param in params_to_freeze:
+                param.requires_grad = False
+            for param in params_backbone:
+                param.requires_grad = False
+            finetune = True
+        # else:
+        #     # IMPORTANT: Remove this later, added for freezing backbone entirely during training
+        #     finetune = False
+        #     print('IMPORTANT: Fully frozen backbone')
+        #     for attr in dir(net.module):
+        #         if attr.endswith('_add_on'):
+        #             for param in getattr(net.module, attr).parameters():
+        #                 param.requires_grad = True
+        #     for attr in dir(net.module):
+        #         if attr.endswith('_classification'):
+        #             for param in getattr(net.module, attr).parameters():
+        #                 param.requires_grad = True
+        #     for param in params_to_train:
+        #         param.requires_grad = False
+        #     for param in params_to_freeze:
+        #         param.requires_grad = False # can be set to False when you want to freeze more layers
+        #     for param in params_backbone:
+        #         param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
+
+        elif epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False
+            for attr in dir(net.module):
+                if attr.endswith('_classification'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = True
             for attr in dir(net.module):
                 if attr.endswith('_add_on'):
                     for param in getattr(net.module, attr).parameters():
@@ -521,7 +575,7 @@ def run_pipnet(args=None):
                                     scheduler_net, scheduler_classifier, criterion, epoch, \
                                         args.epochs, device, pretrain=False, finetune=finetune, \
                                         train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
-                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                             minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
                                             byol=True, byol_tau_base=byol_tau_base, byol_tau_max=byol_tau_max, step_info=step_info_training, \
                                                 wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
@@ -530,7 +584,7 @@ def run_pipnet(args=None):
                                     scheduler_net, scheduler_classifier, criterion, epoch, \
                                         args.epochs, device, pretrain=False, finetune=finetune, \
                                         train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
-                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                            tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                             minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
                                             wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
@@ -541,7 +595,7 @@ def run_pipnet(args=None):
                                         scheduler_net, scheduler_classifier, criterion, epoch, \
                                             args.epochs, device, pretrain=False, finetune=finetune, \
                                             test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                tanh_desc=args.tanh_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                                 minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', byol=True, byol_tau_base=0.9995, step_info=step_info_training, \
                                                 wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
             else:
@@ -549,7 +603,8 @@ def run_pipnet(args=None):
                                         scheduler_net, scheduler_classifier, criterion, epoch, \
                                             args.epochs, device, pretrain=False, finetune=finetune, \
                                             test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
-                                                tanh_desc=args.tanh_desc == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y',\
+                                                tanh_desc=args.tanh_desc == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', \
+                                                align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                                 minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
 
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
@@ -696,28 +751,28 @@ def run_pipnet(args=None):
 
         if loadername == 'projectloader':
             foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
                                 foldername=foldername, find_non_descendants=False, device=device)
             print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, projectloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
                              foldername=foldername, find_non_descendants=True, device=device)
             print("Done visualizing non-descendants!" + loadername, flush=True)
 
         if loadername == 'testloader':
             foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, testloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
                                 foldername=foldername, find_non_descendants=False, device=device)
             print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, testloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
                              foldername=foldername, find_non_descendants=True, device=device)
             print("Done visualizing non-descendants!" + loadername, flush=True)
 
         elif loadername == 'test_projectloader':
             foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
                                 foldername=foldername, find_non_descendants=False, device=device)
             print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, test_projectloader, net, root, save_path=args.log_dir, \
+            save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
                              foldername=foldername, find_non_descendants=True, device=device)
             print("Done visualizing non-descendants!" + loadername, flush=True)
 

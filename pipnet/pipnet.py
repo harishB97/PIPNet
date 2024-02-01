@@ -203,16 +203,43 @@ class ProjectConv2D(nn.Conv2d):
             normalized_bias = None
         return self._conv_forward(input, normalized_weight, normalized_bias)
 
+class DinoV2(torch.nn.Module):
+
+    def __init__(self, model_name, latent_shape):
+        super(DinoV2, self).__init__()
+        self.model = torch.hub.load('facebookresearch/dinov2', model_name).cuda()
+        self.latent_shape = latent_shape
+
+    def forward(self, x):
+        out = self.model(x, is_training=True)['x_norm_patchtokens']
+        out = out.view(out.shape[0], self.latent_shape[0], self.latent_shape[1], out.shape[2])
+        out = out.permute(0, 3, 1, 2)
+        return out
+
 def get_network(num_classes: int, args: argparse.Namespace, root=None): 
-    features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)
-    features_name = str(features).upper()
-    if 'next' in args.net:
-        features_name = str(args.net).upper()
-    if features_name.startswith('RES') or features_name.startswith('CONVNEXT'):
-        first_add_on_layer_in_channels = \
-            [i for i in features.modules() if isinstance(i, nn.Conv2d)][-1].out_channels
+
+    if 'dinov2_vits14' in args.net:
+        features = DinoV2(model_name=args.net, latent_shape=(int(args.image_size/14), int(args.image_size/14)))
+        first_add_on_layer_in_channels = 384
+        if args.num_features == 0:
+            raise Exception('Do not set num_features to 0 for dinov2')
+
+        if args.basic_cnext_gaussian_multiplier != '':
+            raise NotImplementedError
+
+        if args.stage4_reducer_net != '':
+            raise NotImplementedError
+
     else:
-        raise Exception('other base architecture NOT implemented')
+        features = base_architecture_to_features[args.net](pretrained=not args.disable_pretrained)
+        features_name = str(features).upper()
+        if 'next' in args.net:
+            features_name = str(args.net).upper()
+        if features_name.startswith('RES') or features_name.startswith('CONVNEXT'):
+            first_add_on_layer_in_channels = \
+                [i for i in features.modules() if isinstance(i, nn.Conv2d)][-1].out_channels
+        else:
+            raise Exception('other base architecture NOT implemented')
 
     if args.basic_cnext_gaussian_multiplier != '':
         stages = args.basic_cnext_gaussian_multiplier.split('|')[0]

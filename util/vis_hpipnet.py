@@ -82,8 +82,13 @@ def customForwardWithCSandSoftmax(net, xs,  inference=False):
         if isinstance(getattr(net.module, '_'+node.name+'_add_on'), UnitConv2D):
             proto_features_cs[node.name] = torch.abs(proto_features_cs[node.name])
 
-        if net.module.args.softmax == 'y':
-            softmax_tau = 0.2
+        if net.module.args.softmax.split('|')[0] == 'y':
+            if len(net.module.args.softmax.split('|')) > 1:
+                softmax_tau = int(net.module.args.softmax.split('|')[1])
+            else:
+                if isinstance(getattr(net.module, '_'+node.name+'_add_on'), ProjectConv2D):
+                    raise Exception('Do not use softmax temp 0.2 for project distance')
+                softmax_tau = 0.2
             proto_features[node.name] = proto_features[node.name] / softmax_tau
             proto_features_softmaxed[node.name] = net.module._softmax(proto_features[node.name])
             proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'

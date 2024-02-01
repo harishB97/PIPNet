@@ -19,6 +19,27 @@ from torch.utils.data import Sampler, SubsetRandomSampler
 
 import os
 
+def unshuffle_dataloader(dataloader):
+    if type(dataloader.dataset) == ImageFolder:
+        dataset = dataloader.dataset
+    else:
+        dataset = dataloader.dataset.dataset.dataset
+    new_dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=dataloader.batch_size,
+        shuffle=False,
+        num_workers=dataloader.num_workers,
+        pin_memory=dataloader.pin_memory,
+        drop_last=dataloader.drop_last,
+        timeout=dataloader.timeout,
+        worker_init_fn=dataloader.worker_init_fn,
+        multiprocessing_context=dataloader.multiprocessing_context,
+        generator=dataloader.generator,
+        prefetch_factor=dataloader.prefetch_factor,
+        persistent_workers=dataloader.persistent_workers
+    )
+    return new_dataloader
+
 class SubsetSequentialSampler(Sampler):
     def __init__(self, indices):
         self.indices = indices
@@ -641,18 +662,32 @@ def get_birds(augment: bool, train_dir:str, project_dir: str, test_dir:str, img_
             transforms.RandomHorizontalFlip(),
             transforms.RandomResizedCrop(img_size+4, scale=(0.95, 1.))
         ])
+        transform2 = transforms.Compose([
+                            TrivialAugmentWideNoShape(),
+                            transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
+                            transforms.ToTensor(),
+                            normalize
+                            ])
+
         if disable_transform2:
+            print('IMPORTANT: Transform2 disabled')
+            # Replaces assignments from previous steps
+            transform1 = transforms.Compose([
+                transforms.Resize(size=(img_size+8, img_size+8)), 
+                TrivialAugmentWideNoColor(),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomResizedCrop(img_size, scale=(0.95, 1.))
+            ])
+            transform1p = transforms.Compose([
+                transforms.Resize(size=(img_size+32, img_size+32)), #for pretraining, crop can be bigger since it doesn't matter when bird is not fully visible
+                TrivialAugmentWideNoColor(),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomResizedCrop(img_size, scale=(0.95, 1.))
+            ])
             # Disable TrivialAugmentWideNoShape
             transform2 = transforms.Compose([
                                 # TrivialAugmentWideNoShape(),
-                                transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
-                                transforms.ToTensor(),
-                                normalize
-                                ])
-        else:
-            transform2 = transforms.Compose([
-                                TrivialAugmentWideNoShape(),
-                                transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
+                                # transforms.RandomCrop(size=(img_size, img_size)), #includes crop #YTIR - second transform is not supposed to have a shift or shape transform
                                 transforms.ToTensor(),
                                 normalize
                                 ])

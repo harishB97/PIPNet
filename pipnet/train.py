@@ -38,7 +38,7 @@ def findCorrespondingToMax(base, target):
 
 def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, \
                  epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, \
-                 train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, \
+                 train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, tanh=False, \
                  minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, byol_tau_base=0.9995, byol_tau_max=1., step_info=None, wandb_run=None, \
                  pretrain_epochs=0, log:Log=None, args=None):
 
@@ -116,7 +116,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         byol_weight = 0.5
         align_weight = 0.5 #3.
         unif_weight = 3.
-        t_weight = 0 #5. not required during pretraining
+        t_weight = 5.
         mm_weight = 0.
         cl_weight = 0.
         # optional losses
@@ -200,7 +200,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                             cluster_desc_weight=cluster_desc_weight, sep_desc_weight=sep_desc_weight, subspace_sep_weight=subspace_sep_weight, byol_weight=byol_weight,
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize,\
+                           OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, tanh=tanh, minmaximize=minmaximize,\
                             cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, args=args)
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
@@ -413,8 +413,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
 
     for node_name in node_accuracy:
         node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
-        node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
-                                                    average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
+        node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
         node_accuracy[node_name]['f1'] = round(node_accuracy[node_name]['f1'] * 100, 2)
         if wandb_logging:
             log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
@@ -470,7 +469,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
 
 def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, \
                 epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, \
-                test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, \
+                test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, tanh=False, \
                 minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, byol_tau_base=0.9995, step_info=None, \
                     wandb_run=None, pretrain_epochs=0, log:Log=None, args=None):
 
@@ -528,7 +527,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         byol_weight = 0.5
         align_weight = 3.
         unif_weight = 3.
-        t_weight = 0 #5. not required during pretraining
+        t_weight = 5.
         mm_weight = 0.
         cl_weight = 0.
         # optional losses
@@ -606,7 +605,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                                 cluster_desc_weight=cluster_desc_weight, sep_desc_weight=sep_desc_weight, subspace_sep_weight=subspace_sep_weight, byol_weight=byol_weight, \
                                 net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                             criterion=criterion, train_iter=test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
-                            OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, minmaximize=minmaximize,\
+                            OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, tanh=tanh, minmaximize=minmaximize,\
                             cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, train=False, args=args)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
@@ -780,7 +779,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 def calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, cluster_desc_weight, sep_desc_weight, subspace_sep_weight, byol_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
                     label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, \
-                        align_pf=False, minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, train=True, args=None):
+                        align_pf=False, tanh=False, minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, train=True, args=None):
     batch_names = [label2name[y.item()] for y in ys]
 
     normalize_by_node_count = True
@@ -931,7 +930,7 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             if not 'MM' in losses_used:
                 losses_used.append('MM')
 
-        if (not pretrain) and (not finetune) and align_pf:
+        if (not finetune) and align_pf:
             # CARL align loss
             pf1, pf2 = proto_features[node.name][children_idx].chunk(2)
             embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
@@ -942,20 +941,32 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             if not 'AL_PF' in losses_used:
                 losses_used.append('AL_PF')
 
-        if (not pretrain) and tanh_desc:
+        if (not finetune) and tanh:
+            pooled1, pooled2 = pooled[node.name][children_idx].chunk(2)
+            tanh_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() \
+                                    + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean()) / 2.
+            loss += t_weight * tanh_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+            if not 'TANH' in losses_used:
+                losses_used.append('TANH')
+
+        if (not finetune) and tanh_desc:
             # tanh loss corresponding to every descendant species
             tanh_for_each_descendant = []
             for child_node in node.children:
+                child_class_idx = node.children_to_labels[child_node.name]
+                classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
                 if child_node.is_leaf(): # because leaf nodes do not have any descendants
                     descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
-                    descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx].chunk(2)
+                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                    descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
                     descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                         + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
                     tanh_for_each_descendant.append(descendant_tanh_loss)
                 else:
                     for descendant_name in child_node.leaf_descendents:
                         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
-                        descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx].chunk(2)
+                        relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                        descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
                         descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                             + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
                         tanh_for_each_descendant.append(descendant_tanh_loss)
