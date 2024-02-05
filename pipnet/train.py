@@ -92,6 +92,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     sep_desc_loss_ep_mean = 0.
     tanh_desc_loss_ep_mean = 0.
     subspace_sep_loss_ep_mean = 0.
+    conc_log_ip_loss_ep_mean = 0.
 
     iters = len(train_loader)
     # Show progress on progress bar. 
@@ -121,7 +122,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         cl_weight = 0.
         # optional losses
         OOD_loss_weight = 0.
-        orth_weight = 0.1
+        orth_weight = 0.5
         cluster_desc_weight = 0.8
         sep_desc_weight = 0.08
         subspace_sep_weight = 1e-2
@@ -136,7 +137,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         cl_weight = 2.
         # optional losses
         OOD_loss_weight = 0.2
-        orth_weight = 0.1
+        orth_weight = 0.5
         cluster_desc_weight = 0.8
         sep_desc_weight = 0.08
         subspace_sep_weight = 1e-2
@@ -194,8 +195,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         
         loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, \
         uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss,\
-        byol_loss, avg_cluster_desc_loss, avg_sep_desc_loss, avg_tanh_desc_loss, avg_subspace_sep_loss, acc = \
-            calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+        byol_loss, avg_cluster_desc_loss, avg_sep_desc_loss, avg_tanh_desc_loss, avg_subspace_sep_loss, avg_conc_log_ip_loss, acc = \
+            calculate_loss(epoch, net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
                             t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
                             cluster_desc_weight=cluster_desc_weight, sep_desc_weight=sep_desc_weight, subspace_sep_weight=subspace_sep_weight, byol_weight=byol_weight,
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
@@ -269,6 +270,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         sep_desc_loss_ep_mean += avg_sep_desc_loss
         tanh_desc_loss_ep_mean += avg_tanh_desc_loss
         subspace_sep_loss_ep_mean += avg_subspace_sep_loss
+        conc_log_ip_loss_ep_mean += avg_conc_log_ip_loss
         if not pretrain:
             optimizer_classifier.step()   
             scheduler_classifier.step(epoch - 1 + (i/iters))
@@ -348,6 +350,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     sep_desc_loss_ep_mean /= float(i+1)
     tanh_desc_loss_ep_mean /= float(i+1)
     subspace_sep_loss_ep_mean /= float(i+1)
+    conc_log_ip_loss_ep_mean /= float(i+1)
 
     train_info['fine_accuracy'] = n_fine_correct/n_samples
     train_info['train_accuracy'] = total_acc/float(i+1) # have to check what this is not sure how it is useful
@@ -407,6 +410,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         log_dict[wandb_log_subdir + "/sep_desc_loss"] = sep_desc_loss_ep_mean
         log_dict[wandb_log_subdir + "/tanh_desc_loss"] = tanh_desc_loss_ep_mean
         log_dict[wandb_log_subdir + "/subspace_sep_loss"] = subspace_sep_loss_ep_mean
+        log_dict[wandb_log_subdir + "/conc_log_ip_loss"] = conc_log_ip_loss_ep_mean
         # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
         # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
         # wandb_run.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
@@ -509,6 +513,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     sep_desc_loss_ep_mean = 0.
     tanh_desc_loss_ep_mean = 0.
     subspace_sep_loss_ep_mean = 0.
+    conc_log_ip_loss_ep_mean = 0.
 
     iters = len(test_loader)
     # Show progress on progress bar. 
@@ -599,8 +604,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 
             loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, \
             uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, \
-            byol_loss, avg_cluster_desc_loss, avg_sep_desc_loss, avg_tanh_desc_loss, avg_subspace_sep_loss, acc = \
-                calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
+            byol_loss, avg_cluster_desc_loss, avg_sep_desc_loss, avg_tanh_desc_loss, avg_subspace_sep_loss, avg_conc_log_ip_loss, acc = \
+                calculate_loss(epoch, net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight=align_weight, align_pf_weight=align_pf_weight, \
                                 t_weight=t_weight, mm_weight=mm_weight, unif_weight=unif_weight, cl_weight=cl_weight, OOD_loss_weight=OOD_loss_weight, orth_weight=orth_weight, \
                                 cluster_desc_weight=cluster_desc_weight, sep_desc_weight=sep_desc_weight, subspace_sep_weight=subspace_sep_weight, byol_weight=byol_weight, \
                                 net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
@@ -646,6 +651,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             sep_desc_loss_ep_mean += avg_sep_desc_loss
             tanh_desc_loss_ep_mean += avg_tanh_desc_loss
             subspace_sep_loss_ep_mean += avg_subspace_sep_loss
+            conc_log_ip_loss_ep_mean += avg_conc_log_ip_loss
                 
             total_acc+=acc # DUMMY can be removed
             total_loss+=loss.item()
@@ -670,6 +676,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     sep_desc_loss_ep_mean /= float(i+1)
     tanh_desc_loss_ep_mean /= float(i+1)
     subspace_sep_loss_ep_mean /= float(i+1)
+    conc_log_ip_loss_ep_mean /= float(i+1)
 
 
     test_info['fine_accuracy'] = n_fine_correct/n_samples
@@ -721,6 +728,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         log_dict[wandb_log_subdir + "/sep_desc_loss"] = sep_desc_loss_ep_mean
         log_dict[wandb_log_subdir + "/tanh_desc_loss"] = tanh_desc_loss_ep_mean
         log_dict[wandb_log_subdir + "/subspace_sep_loss"] = subspace_sep_loss_ep_mean
+        log_dict[wandb_log_subdir + "/conc_log_ip_loss"] = conc_log_ip_loss_ep_mean
     # log_dict[wandb_log_subdir + "/uni_loss"] = uni_loss_ep_mean
     # wandb_run.log({wandb_log_subdir + "/epoch loss": train_info['loss']}, step=epoch)
     # wandb_run.log({wandb_log_subdir + "/epoch lrs_net": train_info['lrs_net']})
@@ -776,7 +784,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     return test_info, log_dict
 
 
-def calculate_loss(net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
+def calculate_loss(epoch, net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, cluster_desc_weight, sep_desc_weight, subspace_sep_weight, byol_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
                     label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, \
                         align_pf=False, tanh=False, minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, train=True, args=None):
@@ -799,6 +807,7 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
     cluster_desc_loss = {}
     subspace_sep_loss = {}
     sep_desc_loss = {}
+    conc_log_ip_loss = {}
 
     losses_used = []
 
@@ -890,6 +899,61 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             continue
 
         node_logits = out[node.name][children_idx]
+
+        
+
+        if ('y' in args.conc_log_ip):
+            conc_log_ip_weight = 0.01
+            TOPK = int(args.conc_log_ip.split('|')[1]) if (len(args.conc_log_ip.split('|')) > 1) else 1
+            EPS=1e-12
+            num_protos = pooled[node.name].shape[-1]
+            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+            if (len(args.conc_log_ip.split('|')) > 2) and (epoch < int(args.conc_log_ip.split('|')[2])):
+                pass
+            else:
+                if args.protopool == 'n':
+                    mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
+                    node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
+                    conc_log_ip_loss[node.name] = 0.
+                    for child_node in node.children:
+                        child_class_idx = node.children_to_labels[child_node.name]
+                        relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                        mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
+
+                        relevant_data_idx = torch.nonzero(node_y == child_class_idx).squeeze(-1)
+
+                        if len(relevant_data_idx) == 0:
+                            continue # no data points with child_class_idx present so skip this child_node
+
+                        _, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=TOPK)
+                        # proto_idx = relevant_proto_idx.unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
+                        proto_idx = torch.arange(0, len(relevant_proto_idx)).unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
+                        topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
+                        proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
+                        topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
+                        conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
+                        conc_log_ip_loss_for_child = -torch.log(conc_log_ip_temp + EPS).mean()
+                        conc_log_ip_loss[node.name] += conc_log_ip_loss_for_child
+
+                        loss += conc_log_ip_weight * conc_log_ip_loss_for_child / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                        if not 'CONC_LOG_IP' in losses_used:
+                            losses_used.append('CONC_LOG_IP')
+
+                else:
+                    # classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+                    # node_y.unsqueeze(-1).repeat(1, num_protos)
+                    # torch.nonzero(classification_weights[0, :] > 1e-3).squeeze(-1)
+                    _, topk_idx = torch.topk(pooled[node.name][children_idx], dim=0, k=TOPK) # [topk, num_protos]
+                    proto_idx = torch.arange(0, num_protos).unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
+                    topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
+                    proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
+                    topk_activation_maps = proto_features[node.name][children_idx][topk_idx, proto_idx]
+                    conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
+                    conc_log_ip_loss[node.name] = -torch.log(conc_log_ip_temp + EPS).mean()
+
+                    loss += conc_log_ip_weight * conc_log_ip_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                    if not 'CONC_LOG_IP' in losses_used:
+                        losses_used.append('CONC_LOG_IP')
 
         if (not pretrain) and (not finetune) and minmaximize:
             minmaximize_loss[node.name] = 0
@@ -1234,6 +1298,10 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            if len(conc_log_ip_loss) > 0:
+                avg_conc_log_ip_loss = np.mean([loss_val.item() for node_name, loss_val in conc_log_ip_loss.items()])
+            else:
+                avg_conc_log_ip_loss = torch.tensor(-5) # placeholder value
             # dict will be empty if not used, so setting the average to a placeholder vale
             if len(cluster_desc_loss) > 0:
                 avg_cluster_desc_loss = np.mean([loss_val.item() for node_name, loss_val in cluster_desc_loss.items()])
@@ -1294,17 +1362,17 @@ def calculate_loss(net, additional_network_outputs, features, proto_features, po
             avg_OOD_loss = None
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                f'L: {loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
             else:
                 avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
-    return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, byol_loss.item(), avg_cluster_desc_loss.item(), avg_sep_desc_loss.item(), avg_tanh_desc_loss.item(), avg_subspace_sep_loss.item(),  acc
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+    return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, byol_loss.item(), avg_cluster_desc_loss.item(), avg_sep_desc_loss.item(), avg_tanh_desc_loss.item(), avg_subspace_sep_loss.item(), avg_conc_log_ip_loss.item(), acc
 
 
 def flatten_tensor(x):

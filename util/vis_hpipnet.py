@@ -89,9 +89,22 @@ def customForwardWithCSandSoftmax(net, xs,  inference=False):
                 if isinstance(getattr(net.module, '_'+node.name+'_add_on'), ProjectConv2D):
                     raise Exception('Do not use softmax temp 0.2 for project distance')
                 softmax_tau = 0.2
-            proto_features[node.name] = proto_features[node.name] / softmax_tau
-            proto_features_softmaxed[node.name] = net.module._softmax(proto_features[node.name])
-            proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
+
+            if ('y' in net.module.args.conc_log_ip):
+                # softmax over the channel instead of over the patch
+                B, C, H, W = proto_features[node.name].shape
+                proto_features[node.name] = proto_features[node.name].reshape(B, C, -1)
+                proto_features_softmaxed[node.name] = F.softmax(proto_features[node.name], dim=-1)
+                proto_features_softmaxed[node.name] = proto_features_softmaxed[node.name].reshape(B, C, H, W)
+                proto_features[node.name] = proto_features_softmaxed[node.name]
+            else:
+                proto_features[node.name] = proto_features[node.name] / softmax_tau
+                proto_features_softmaxed[node.name] = net.module._softmax(proto_features[node.name])
+                proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
+
+            # proto_features[node.name] = proto_features[node.name] / softmax_tau
+            # proto_features_softmaxed[node.name] = net.module._softmax(proto_features[node.name])
+            # proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
         elif net.module.args.gumbel_softmax == 'y':
             proto_features_softmaxed[node.name] = net.module._gumbel_softmax(proto_features[node.name])
             proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'

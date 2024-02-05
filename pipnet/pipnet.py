@@ -74,6 +74,9 @@ class PIPNet(nn.Module):
 
         if (args.multiply_cs_softmax == 'y') and not (args.softmax.split('|')[0] == 'y' or args.gumbel_softmax == 'y'):
             raise Exception('Use either softmax or gumbel softmax when using multiply_cs_softmax')
+        
+        self.conc_log_ip = ('y' in args.conc_log_ip)
+        # self.conv_layer_in_add_on = type(self._add_on[0]) == nn.Conv2d
 
     
     def forward(self, xs,  inference=False):
@@ -102,9 +105,19 @@ class PIPNet(nn.Module):
                     if isinstance(getattr(self, '_'+node.name+'_add_on'), ProjectConv2D):
                         raise Exception('Do not use softmax temp 0.2 for project distance')
                     softmax_tau = 0.2
-                proto_features[node.name] = proto_features[node.name] / softmax_tau
-                proto_features_softmaxed[node.name] = self._softmax(proto_features[node.name])
-                proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
+                
+                if self.conc_log_ip:
+                    # softmax over the channel instead of over the patch
+                    B, C, H, W = proto_features[node.name].shape
+                    proto_features[node.name] = proto_features[node.name].reshape(B, C, -1)
+                    proto_features_softmaxed[node.name] = F.softmax(proto_features[node.name], dim=-1)
+                    proto_features_softmaxed[node.name] = proto_features_softmaxed[node.name].reshape(B, C, H, W)
+                    proto_features[node.name] = proto_features_softmaxed[node.name]
+                else:
+                    proto_features[node.name] = proto_features[node.name] / softmax_tau
+                    proto_features_softmaxed[node.name] = self._softmax(proto_features[node.name])
+                    proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'
+            
             elif self.args.gumbel_softmax == 'y':
                 proto_features_softmaxed[node.name] = self._gumbel_softmax(proto_features[node.name])
                 proto_features[node.name] = proto_features_softmaxed[node.name] # will be overwritten if args.multiply_cs_softmax == 'y'

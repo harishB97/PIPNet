@@ -205,6 +205,11 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use subspace seperation loss or not.'
                         )
+    parser.add_argument('--conc_log_ip',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use conc_log_ip loss or not.'
+                        )
     parser.add_argument('--softmax',
                         type=str,
                         default='n',
@@ -947,7 +952,6 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
                 params_to_train.append(param)
             else:
                 params_backbone.append(param)
-        pass
     else:
         print("Network is not implemented.", flush=True)     
 
