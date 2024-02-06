@@ -90,7 +90,7 @@ def customForwardWithCSandSoftmax(net, xs,  inference=False):
                     raise Exception('Do not use softmax temp 0.2 for project distance')
                 softmax_tau = 0.2
 
-            if ('y' in net.module.args.conc_log_ip):
+            if ('y' in net.module.args.softmax_over_channel): #('y' in net.module.args.conc_log_ip):
                 # softmax over the channel instead of over the patch
                 B, C, H, W = proto_features[node.name].shape
                 proto_features[node.name] = proto_features[node.name].reshape(B, C, -1)

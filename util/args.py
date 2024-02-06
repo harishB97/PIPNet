@@ -210,10 +210,20 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use conc_log_ip loss or not.'
                         )
+    parser.add_argument('--conc_log_ip_peak_normalize',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to divide the activations by peak before doing conc_log_ip.'
+                        )
     parser.add_argument('--ant_conc_log_ip',
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use ant_conc_log_ip loss or not.'
+                        )
+    parser.add_argument('--act_l1',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use act_l1 (l1 loss on the activation map) loss or not.'
                         )
     parser.add_argument('--softmax',
                         type=str,
@@ -243,6 +253,11 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use UnitConv2D or nn.Conv2D between prototypes and features'
+                        )
+    parser.add_argument('--l2conv2d',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use L2 conv 2d similar to protopnet'
                         )
     parser.add_argument('--focal',
                         type=str,
@@ -312,6 +327,11 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='Disables the second transform which affects color, contrast, saturations etc.'
+                        )
+    parser.add_argument('--softmax_over_channel',
+                        type=str,
+                        default='n',
+                        help='Does softmax over channel instead of over the prototypes.'
                         )
 
     

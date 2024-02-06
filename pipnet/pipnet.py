@@ -106,7 +106,7 @@ class PIPNet(nn.Module):
                         raise Exception('Do not use softmax temp 0.2 for project distance')
                     softmax_tau = 0.2
                 
-                if self.conc_log_ip:
+                if self.args.softmax_over_channel == 'y': #self.conc_log_ip:
                     # softmax over the channel instead of over the patch
                     B, C, H, W = proto_features[node.name].shape
                     proto_features[node.name] = proto_features[node.name].reshape(B, C, -1)
@@ -184,6 +184,28 @@ class NonNegLinear(nn.Module):
 
     def forward(self, input: Tensor) -> Tensor:
         return F.linear(input,torch.relu(self.weight), self.bias)
+    
+class Linear(nn.Module):
+    """Applies a linear transformation to the incoming data with non-negative weights`
+    """
+    def __init__(self, in_features: int, out_features: int, bias: bool = True,
+                 device=None, dtype=None) -> None:
+        factory_kwargs = {'device': device, 'dtype': dtype}
+        super(Linear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.empty((out_features, in_features), **factory_kwargs))
+        torch.nn.init.normal_(self.weight, mean=1.0,std=0.1)
+
+        self.normalization_multiplier = nn.Parameter(torch.ones((1,),requires_grad=True))
+        if bias:
+            self.bias = nn.Parameter(torch.empty(out_features, **factory_kwargs))
+            torch.nn.init.constant_(self.bias, val=0.)
+        else:
+            self.register_parameter('bias', None)
+
+    def forward(self, input: Tensor) -> Tensor:
+        return F.linear(input,self.weight, self.bias)
 
 import torch
 import torch.nn as nn
@@ -202,6 +224,36 @@ class UnitConv2D(nn.Conv2d):
         else:
             normalized_bias = None
         return self._conv_forward(normalized_input, normalized_weight, normalized_bias)
+    
+class L2Conv2D(nn.Conv2d):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
+        if bias:
+            raise Exception('Do not use bias for l2conv2d')
+        super(L2Conv2D, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+        self.ones = nn.Parameter(torch.ones(self.weight.data.shape), requires_grad=False)
+
+    def distance_2_similarity(self, distances):
+        # if self.prototype_activation_function == 'log':
+        return torch.log((distances + 1) / (distances + 1e-4))
+        # elif self.prototype_activation_function == 'linear':
+        #     return -distances
+        # else:
+        #     return self.prototype_activation_function(distances)
+
+    def forward(self, input):
+        x = input
+        x2 = x ** 2
+        x2_patch_sum = F.conv2d(input=x2, weight=self.ones)
+        p2 = self.weight.data ** 2
+        p2 = torch.sum(p2, dim=(1, 2, 3))
+        # p2 is a vector of shape (num_prototypes,)
+        # then we reshape it to (num_prototypes, 1, 1)
+        p2_reshape = p2.unsqueeze(-1).unsqueeze(-1)
+        # xp = F.conv2d(input=x, weight=self.prototype_vectors) 
+        xp = self._conv_forward(x, self.weight.data, None) # bias directly set to None
+        intermediate_result = - 2 * xp + p2_reshape  # use broadcast
+        distances = F.relu(x2_patch_sum + intermediate_result)
+        return self.distance_2_similarity(distances)
 
 class ProjectConv2D(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, padding_mode='zeros'):
@@ -298,6 +350,9 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
         elif args.projectconv2d == 'y':
             add_on_layers[node.name] = ProjectConv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
                                                 kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d
+        elif args.l2conv2d == 'y':
+            add_on_layers[node.name] = L2Conv2D(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
+                                                kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False)
         else:
             add_on_layers[node.name] = nn.Conv2d(in_channels=first_add_on_layer_in_channels, out_channels=node.num_protos, \
                                                 kernel_size=1, stride = 1, padding=0, bias=True if args.add_on_bias else False) # is bias required ??, prev True now set to False for unit length conv2d

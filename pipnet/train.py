@@ -809,6 +809,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     sep_desc_loss = {}
     conc_log_ip_loss = {}
     ant_conc_log_ip_loss = {}
+    act_l1_loss = {}
 
     losses_used = []
 
@@ -916,14 +917,14 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                 pass
             else:
                 if args.protopool == 'n':
-                    mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
+                    # mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
                     node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
                     conc_log_ip_loss[node.name] = 0.
                     for child_node in node.children:
                         child_class_idx = node.children_to_labels[child_node.name]
                         relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
                         # torch.nonzero(classification_weights[1, :] > 1e-3).squeeze(-1)
-                        mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
+                        # mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
 
                         relevant_data_idx = torch.nonzero(node_y == child_class_idx).squeeze(-1)
 
@@ -936,6 +937,12 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                         topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
                         proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
                         topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
+                        
+                        if args.conc_log_ip_peak_normalize == 'y':
+                            max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
+                            max_vals = max_vals.reshape(-1, 1, 1)
+                            topk_activation_maps = topk_activation_maps / max_vals
+                        
                         conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
                         conc_log_ip_loss_for_child = -torch.log(conc_log_ip_temp + EPS).mean()
                         conc_log_ip_loss[node.name] += conc_log_ip_loss_for_child
@@ -1000,6 +1007,66 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                         losses_used.append('ANT_CONC_LOG_IP')
             else:
                 raise Exception('Do not use ant_conc_log_ip loss when protopool is true')
+
+        if ('y' in args.act_l1):
+            act_l1_weight = 0.01
+            TOPK = int(args.act_l1.split('|')[1]) if (len(args.act_l1.split('|')) > 1) else 1
+            EPS=1e-12
+            num_protos = pooled[node.name].shape[-1]
+            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+
+            if args.protopool == 'n':
+                # mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
+                # node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
+                act_l1_loss[node.name] = 0.
+                for child_node in node.children:
+                    child_class_idx = node.children_to_labels[child_node.name]
+                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                    # torch.nonzero(classification_weights[1, :] > 1e-3).squeeze(-1)
+                    # mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
+
+                    relevant_data_idx = torch.nonzero(node_y == child_class_idx).squeeze(-1)
+
+                    if len(relevant_data_idx) == 0:
+                        continue # no data points with child_class_idx present so skip this child_node
+
+                    _, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=min(TOPK, len(relevant_data_idx)))
+                    # proto_idx = relevant_proto_idx.unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
+                    proto_idx = torch.arange(0, len(relevant_proto_idx)).unsqueeze(0).repeat(min(TOPK, len(relevant_data_idx)), 1) # [topk, num_protos]
+                    topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
+                    proto_idx = proto_idx.reshape(-1) # [topk*num_protos]   
+                    topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
+                    if topk_activation_maps.size(0) == 0:
+                        breakpoint()
+                    max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
+                    max_vals = max_vals.reshape(-1, 1, 1)
+                    mask = topk_activation_maps != max_vals
+                    masked_tensor = topk_activation_maps * mask
+                    act_l1_loss_for_child = masked_tensor.abs().mean()
+                    act_l1_loss[node.name] += act_l1_loss_for_child
+
+                    loss += act_l1_weight * act_l1_loss_for_child / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                    if not 'ACT_L1' in losses_used:
+                        losses_used.append('ACT_L1')
+
+            else:
+                # classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+                # node_y.unsqueeze(-1).repeat(1, num_protos)
+                # torch.nonzero(classification_weights[0, :] > 1e-3).squeeze(-1)
+                _, topk_idx = torch.topk(pooled[node.name][children_idx], dim=0, k=min(TOPK, pooled[node.name][children_idx].shape[0])) # [topk, num_protos]
+                proto_idx = torch.arange(0, num_protos).unsqueeze(0).repeat(min(TOPK, pooled[node.name][children_idx].shape[0]), 1) # [topk, num_protos]
+                topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
+                proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
+                topk_activation_maps = proto_features[node.name][children_idx][topk_idx, proto_idx]
+                max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
+                max_vals = max_vals.reshape(-1, 1, 1)
+                mask = topk_activation_maps != max_vals
+                masked_tensor = topk_activation_maps * mask
+                act_l1_loss[node.name] = masked_tensor.abs().mean()
+
+                loss += act_l1_weight * act_l1_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                if not 'ACT_L1' in losses_used:
+                    losses_used.append('ACT_L1')
 
         if (not pretrain) and (not finetune) and minmaximize:
             minmaximize_loss[node.name] = 0
@@ -1344,6 +1411,11 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            if len(act_l1_loss) > 0:
+                avg_act_l1_loss = np.mean([loss_val.item() for node_name, loss_val in act_l1_loss.items()])
+            else:
+                avg_act_l1_loss = torch.tensor(-5) # placeholder value
+
             if len(ant_conc_log_ip_loss) > 0:
                 avg_ant_conc_log_ip_loss = np.mean([loss_val.item() for node_name, loss_val in ant_conc_log_ip_loss.items()])
             else:
@@ -1414,16 +1486,16 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             avg_OOD_loss = None
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                f'L: {loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
             else:
                 avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
     return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, byol_loss.item(), avg_cluster_desc_loss.item(), avg_sep_desc_loss.item(), avg_tanh_desc_loss.item(), avg_subspace_sep_loss.item(), avg_conc_log_ip_loss.item(), acc
 
 
