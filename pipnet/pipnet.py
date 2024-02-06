@@ -330,8 +330,8 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
             for child_node in node.children:
                 child_label = node.children_to_labels[child_node.name]
                 end_idx = start_idx + node.num_protos_per_child[child_node.name]
-                classification_layers[node.name].weight[child_label, :start_idx] = -1.0
-                classification_layers[node.name].weight[child_label, end_idx:] = -1.0
+                classification_layers[node.name].weight[child_label, :start_idx] = -0.5
+                classification_layers[node.name].weight[child_label, end_idx:] = -0.5
                 start_idx = end_idx
 
             classification_layers[node.name].weight.requires_grad = True

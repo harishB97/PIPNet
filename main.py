@@ -219,7 +219,7 @@ def run_pipnet(args=None):
     
     # Create a convolutional network based on arguments and add 1x1 conv layer
     feature_net, add_on_layers, pool_layer, classification_layers, num_prototypes = get_network(len(classes), args, root)
-   
+
     # Create a PIP-Net
     if args.byol.split('|')[0] == 'y':
         net = PIPNetBYOL(num_classes=len(classes),

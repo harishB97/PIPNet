@@ -210,6 +210,11 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use conc_log_ip loss or not.'
                         )
+    parser.add_argument('--ant_conc_log_ip',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use ant_conc_log_ip loss or not.'
+                        )
     parser.add_argument('--softmax',
                         type=str,
                         default='n',
