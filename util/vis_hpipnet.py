@@ -303,6 +303,13 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
                     mean_activation = round(np.mean([activation for activation, *_ in proto_mean_activations[p][leaf_descendent]]), 4)
                     num_images = len(proto_mean_activations[p][leaf_descendent])
                     logstr += f'{leaf_descendent}:({mean_activation}) '
+                if ('y' in args.mask_prune_overspecific):
+                    not_overspecific = torch.argmax(getattr(net.module, '_'+node.name+'_proto_presence')[p, :]).item()
+                    if not_overspecific == 0:
+                        logstr += f'overspecific'
+                    else:
+                        logstr += f'good'
+
                 print(logstr)
                 
                 # have this for NON descendants

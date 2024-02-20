@@ -17,6 +17,8 @@ from pipnet.pipnet import functional_UnitConv2D
 import os
 import gc
 
+import pdb
+
 # import wandb
 
 OOD_LABEL = -1
@@ -185,6 +187,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
 
         additional_network_outputs = {}
         
+        
         # Perform a forward pass through the network
         if byol:
             online_network_out, target_network_out, features, proto_features, pooled, out = net(xs)
@@ -202,19 +205,28 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
                             net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                            criterion=criterion, train_iter=train_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
                            OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, tanh=tanh, minmaximize=minmaximize,\
-                            cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, args=args)
+                            cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, args=args, device=device)
+
+        # breakpoint() 
+        # getattr(net.module, '_144+147_classification').weight
+        # getattr(net.module, '_031+032_classification').weight
+        # getattr(net.module, '_084+063_classification').weight
+        # getattr(net.module, '_107+030_classification').weight
+        
+
         
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB")
         # print(f"GPU Memory Usage: 0: {torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1: {torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
-        with torch.no_grad():
-            features1, features2 = features.chunk(2)
-            flattened_meanpooled_features1 = flatten_tensor(features1)
-            flattened_meanpooled_features2 = flatten_tensor(features2)
-            normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)
-            normalized_flattened_meanpooled_features2 = F.normalize(flattened_meanpooled_features2, p=2, dim=1)
-            true_uni_loss = (uniform_loss(normalized_flattened_meanpooled_features1) \
-                        + uniform_loss(normalized_flattened_meanpooled_features2)) / 2.
+        # with torch.no_grad():
+        #     features1, features2 = features.chunk(2)
+        #     flattened_meanpooled_features1 = flatten_tensor(features1)
+        #     flattened_meanpooled_features2 = flatten_tensor(features2)
+        #     normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)
+        #     normalized_flattened_meanpooled_features2 = F.normalize(flattened_meanpooled_features2, p=2, dim=1)
+        #     true_uni_loss = (uniform_loss(normalized_flattened_meanpooled_features1) \
+        #                 + uniform_loss(normalized_flattened_meanpooled_features2)) / 2.
+        true_uni_loss = torch.tensor(-5)
 
         # Compute the gradient
         loss.backward()
@@ -475,7 +487,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                 epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, \
                 test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, tanh=False, \
                 minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, byol_tau_base=0.9995, step_info=None, \
-                    wandb_run=None, pretrain_epochs=0, log:Log=None, args=None):
+                    wandb_run=None, pretrain_epochs=0, log:Log=None, args=None, apply_overspecificity_mask=False):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -600,7 +612,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                 additional_network_outputs['online_network_out'] = online_network_out
                 additional_network_outputs['target_network_out'] = target_network_out
             else:
-                features, proto_features, pooled, out = net(xs)
+                features, proto_features, pooled, out = net(xs, apply_overspecificity_mask=apply_overspecificity_mask)
 
             loss, class_loss_dict, a_loss, tanh_loss_dict, minmaximize_loss_dict, OOD_loss_dict, kernel_orth_loss_dict, \
             uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, \
@@ -611,7 +623,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                                 net_normalization_multiplier=net.module._multiplier, pretrain=pretrain, finetune=finetune, \
                             criterion=criterion, train_iter=test_iter, print=True, EPS=1e-8, root=root, label2name=label2name, node_accuracy=node_accuracy, \
                             OOD_loss_required=OOD_loss_required, kernel_orth=kernel_orth, tanh_desc=tanh_desc, align=align, uni=uni, align_pf=align_pf, tanh=tanh, minmaximize=minmaximize,\
-                            cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, train=False, args=args)
+                            cluster_desc=cluster_desc, sep_desc=sep_desc, subspace_sep=subspace_sep, byol=byol, train=False, args=args, device=device)
             
             # print(f"GPU Memory Usage: 0:{torch.cuda.memory_allocated(0) / 1024**2:.2f} MB, 1:{torch.cuda.memory_allocated(1) / 1024**2:.2f} MB")
 
@@ -656,7 +668,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
             total_acc+=acc # DUMMY can be removed
             total_loss+=loss.item()
             
-            _, preds_joint = net.module.get_joint_distribution(out)
+            _, preds_joint = net.module.get_joint_distribution(out, apply_overspecificity_mask=apply_overspecificity_mask)
             preds_joint = preds_joint[ys != OOD_LABEL]
             _, fine_predicted = torch.max(preds_joint.data, 1)
             target = ys[ys != OOD_LABEL]
@@ -735,6 +747,11 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
     # wandb_run.log({wandb_log_subdir + "/epoch lrs_class": train_info['lrs_class']})
 
     for node_name in node_accuracy:
+        if node_accuracy[node_name]['n_examples'] == 0:
+            node_accuracy[node_name]['accuracy'] = node_accuracy[node_name]['f1'] = float('inf')
+            log_dict[wandb_log_subdir + f"/node_wise/acc:{node_name}"] = node_accuracy[node_name]['accuracy']
+            log_dict[wandb_log_subdir + f"/node_wise/f1:{node_name}"] = node_accuracy[node_name]['f1']
+            continue
         node_accuracy[node_name]['accuracy'] = round((node_accuracy[node_name]['n_correct'] / node_accuracy[node_name]['n_examples']) * 100, 2)
         node_accuracy[node_name]['f1'] = f1_score(node_accuracy[node_name]["preds"], node_accuracy[node_name]["gts"].to(torch.int), \
                                                     average='weighted', num_classes=net.module.root.get_node(node_name).num_children()).item()
@@ -787,7 +804,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
 def calculate_loss(epoch, net, additional_network_outputs, features, proto_features, pooled, out, ys, align_weight, align_pf_weight, t_weight, mm_weight, unif_weight, cl_weight, OOD_loss_weight, \
                     orth_weight, cluster_desc_weight, sep_desc_weight, subspace_sep_weight, byol_weight, net_normalization_multiplier, pretrain, finetune, criterion, train_iter, print=True, EPS=1e-10, root=None, \
                     label2name=None, node_accuracy=None, OOD_loss_required=False, kernel_orth=False, tanh_desc=False, align=True, uni=True, \
-                        align_pf=False, tanh=False, minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, train=True, args=None):
+                        align_pf=False, tanh=False, minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, train=True, args=None, device=None):
     batch_names = [label2name[y.item()] for y in ys]
 
     normalize_by_node_count = True
@@ -810,6 +827,9 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     conc_log_ip_loss = {}
     ant_conc_log_ip_loss = {}
     act_l1_loss = {}
+    overspecifity_loss = {}
+    mask_l1_loss = {}
+    minimize_contrasting_set_loss = {}
 
     losses_used = []
 
@@ -862,20 +882,20 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     elif (not finetune) and uni:
         raise Exception('Uni can be used only along with align loss')
 
-    # else:
-    #     # a_loss = torch.tensor(-5) # placeholder value
-    #     # uni_loss = torch.tensor(-5) # placeholder value
-    with torch.no_grad():
-        flattened_features1 = flatten_tensor(features1)
-        flattened_features2 = flatten_tensor(features2)
-        normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
-        normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
-        if 'AL' not in losses_used:
-            a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
-        if 'UNI' not in losses_used:
-            # uni_loss = (uniform_loss(normalized_flattened_features1) \
-            #             + uniform_loss(normalized_flattened_features2)) / 2.
-            uni_loss = uniform_loss(normalized_flattened_features1)                        
+    else:
+        a_loss = torch.tensor(-5) # placeholder value
+        uni_loss = torch.tensor(-5) # placeholder value
+    # with torch.no_grad():
+    #     flattened_features1 = flatten_tensor(features1)
+    #     flattened_features2 = flatten_tensor(features2)
+    #     normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
+    #     normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
+    #     if 'AL' not in losses_used:
+    #         a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
+    #     if 'UNI' not in losses_used:
+    #         # uni_loss = (uniform_loss(normalized_flattened_features1) \
+    #         #             + uniform_loss(normalized_flattened_features2)) / 2.
+    #         uni_loss = uniform_loss(normalized_flattened_features1)                        
 
     if args.sg_before_protos == 'y':
         features = features.clone().detach()
@@ -895,14 +915,118 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     for node in root.nodes_with_children():
         children_idx = torch.tensor([name in node.leaf_descendents for name in batch_names])
         batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.leaf_descendents]
-        node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).cuda()
+        node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).to(device)#.cuda()
 
         if len(node_y) == 0:
             continue
 
         node_logits = out[node.name][children_idx]
 
-        
+        if (not pretrain) and ('y' in args.mask_prune_overspecific):
+            assert args.protopool != 'y'
+
+            overspecifity_loss_weight = 2.0 # 1.0 # 2.0
+            mask_l1_loss_weight = 0.5
+
+            if (len(args.mask_prune_overspecific.split('|')) > 1) and (epoch < int(args.mask_prune_overspecific.split('|')[1])):
+                pass
+            else:
+                proto_presence = getattr(net.module, '_'+node.name+'_proto_presence')
+                overspecifity_loss_current_node = 0.
+                mask_l1_loss_current_node = 0.
+                total_num_relevant_protos = 0. # sum of relevant protos for each class, no proto is relevant to more than one class so this would work
+
+                for child_node in node.children:
+                    classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+                    child_class_idx = node.children_to_labels[child_node.name]
+                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                    num_relevant_protos = relevant_proto_idx.shape[0]
+                    total_num_relevant_protos += num_relevant_protos
+
+                    max_pooled_each_descendant = torch.empty(0, num_relevant_protos).to(device)#.cuda()
+                    for descendant_name in child_node.leaf_descendents:
+                        descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
+                        if torch.sum(descendant_idx).item() == 0: # no of descendants in batch is zero
+                            continue
+                        # pooled[node.name][descendant_idx] -> [num descendants in batch, num_protos]
+                        max_vals, _ = torch.max(pooled[node.name][descendant_idx][:, relevant_proto_idx], dim=0, keepdim=True) # [1, num_relevant_protos]
+                        # try:
+                        max_pooled_each_descendant = torch.cat([max_pooled_each_descendant, max_vals], dim=0)
+                        # except:
+                        #     breakpoint()
+                    
+                    # breakpoint()
+                    # print(proto_presence.requires_grad)
+                    proto_presence = F.gumbel_softmax(proto_presence, tau=0.5, hard=False, dim=-1)
+                    # print(proto_presence.requires_grad)
+                    # max_pooled_each_descendant -> [num descendants in batch, num_relevant_protos]
+                    if (len(args.mask_prune_overspecific.split('|')) > 2): # is there is a boosting factor
+                        boosting_factor = float(args.mask_prune_overspecific.split('|')[2])
+                        overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant.clone().detach() * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
+                    else: # without boosting factor
+                        overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
+                    
+                    mask_l1_loss_current_node += proto_presence[relevant_proto_idx, 1].sum()
+                    # print(overspecifity_loss_current_node.requires_grad)
+                    # print(mask_l1_loss_current_node.requires_grad)
+                    # breakpoint() # torch.prod(max_pooled_each_descendant[:, 0], dim=0)
+
+                overspecifity_loss_current_node /= total_num_relevant_protos
+                mask_l1_loss_current_node /= total_num_relevant_protos
+
+                overspecifity_loss[node.name] = (overspecifity_loss_weight * overspecifity_loss_current_node) \
+                                                    / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                # if torch.isnan(overspecifity_loss[node.name]):
+                #     breakpoint()
+                mask_l1_loss[node.name] = (mask_l1_loss_weight * mask_l1_loss_current_node) \
+                                                    / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                # if torch.isnan(mask_l1_loss[node.name]):
+                #     breakpoint()
+                loss += overspecifity_loss[node.name] + mask_l1_loss[node.name]
+                if not 'MASK_PRUNING' in losses_used:
+                    losses_used.append('MASK_PRUNING')
+
+        if (not pretrain) and (not finetune) and ('y' in args.minimize_contrasting_set):
+            minimize_contrasting_set_weight = 0.1
+            TOPK = int(args.minimize_contrasting_set.split('|')[1]) if (len(args.minimize_contrasting_set.split('|')) > 1) else 1
+            EPS=1e-12
+            num_protos = pooled[node.name].shape[-1]
+            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
+            if args.protopool == 'n':
+                node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
+                minimize_contrasting_set_loss[node.name] = 0.
+                max_of_contrasting_set = torch.empty(TOPK, 0).to(device)#.cuda()
+                for child_node in node.children:
+                    child_class_idx = node.children_to_labels[child_node.name]
+                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-5).squeeze(-1)
+
+                    if len(relevant_proto_idx) == 0:
+                        # likely to happen when leave_out_classes is used
+                        # breakpoint()
+                        assert child_node.is_leaf()
+                        assert args.leave_out_classes.strip() != '' 
+                        continue
+                    
+                    # look at data points that do not belong to child_node
+                    relevant_data_idx = torch.nonzero(node_y != child_class_idx).squeeze(-1)
+
+                    if len(relevant_data_idx) == 0:
+                        continue # no data points that is not equal to child_class_idx present so skip this child_node
+
+                    max_of_contrast, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=TOPK)
+                    max_of_contrasting_set = torch.cat([max_of_contrasting_set, max_of_contrast], dim=1)
+
+                    # if torch.isnan(max_of_contrast.sum()):
+                    #     breakpoint()
+                if max_of_contrasting_set.numel() != 0:
+                    loss += minimize_contrasting_set_weight * max_of_contrasting_set.mean() / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                    if not 'MIN_CONT' in losses_used:
+                        losses_used.append('MIN_CONT')
+                    # if torch.isnan(minimize_contrasting_set_weight * max_of_contrasting_set.mean()):
+                    #     breakpoint()
+                        # torch.nonzero(node_y != 0).squeeze(-1)
+            else:
+                raise Exception('Do not use ant_conc_log_ip loss when protopool is true')
 
         if ('y' in args.conc_log_ip):
             conc_log_ip_weight = 0.01
@@ -1036,8 +1160,8 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
                     proto_idx = proto_idx.reshape(-1) # [topk*num_protos]   
                     topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
-                    if topk_activation_maps.size(0) == 0:
-                        breakpoint()
+                    # if topk_activation_maps.size(0) == 0:
+                    #     breakpoint()
                     max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
                     max_vals = max_vals.reshape(-1, 1, 1)
                     mask = topk_activation_maps != max_vals
@@ -1114,19 +1238,28 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             embv1 = pf1.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
             a_loss_pf[node.name] = (align_loss(embv1, embv2.detach()) \
                                     + align_loss(embv2, embv1.detach())) / 2.
+            # if torch.isnan(a_loss_pf[node.name]):
+            #     breakpoint()
             loss += align_pf_weight * a_loss_pf[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'AL_PF' in losses_used:
                 losses_used.append('AL_PF')
 
         if (not finetune) and tanh:
-            pooled1, pooled2 = pooled[node.name][children_idx].chunk(2)
-            tanh_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() \
-                                    + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean()) / 2.
-            loss += t_weight * tanh_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-            if not 'TANH' in losses_used:
-                losses_used.append('TANH')
+            if (args.tanh_during_second_phase == 'n') and (not pretrain):
+                pass
+            else:
+                pooled1, pooled2 = pooled[node.name][children_idx].chunk(2)
+                tanh_loss[node.name] = -(torch.log(torch.tanh(torch.sum(pooled1,dim=0))+EPS).mean() \
+                                        + torch.log(torch.tanh(torch.sum(pooled2,dim=0))+EPS).mean()) / 2.
+                # if torch.isnan(tanh_loss[node.name]):
+                #     breakpoint()
+                loss += t_weight * tanh_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                if not 'TANH' in losses_used:
+                    losses_used.append('TANH')
 
-        if (not finetune) and tanh_desc:
+        if (not finetune) and (not pretrain) and tanh_desc:
+            tanh_desc_weight =  float(args.tanh_desc.split('|')[1])
+            # tanh_desc_weight =  0.05 # 0.1 # 0.2 # 2.0
             # tanh loss corresponding to every descendant species
             tanh_for_each_descendant = []
             for child_node in node.children:
@@ -1135,6 +1268,9 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                 if child_node.is_leaf(): # because leaf nodes do not have any descendants
                     descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                    if len(relevant_proto_idx) == 0:
+                        assert args.leave_out_classes.strip() != '' # this is likely to happen when using leave_out_classes
+                        continue 
                     descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
                     descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                         + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
@@ -1143,14 +1279,20 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     for descendant_name in child_node.leaf_descendents:
                         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
                         relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
+                        if len(relevant_proto_idx) == 0:
+                            breakpoint()
                         descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
                         descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                             + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
                         tanh_for_each_descendant.append(descendant_tanh_loss)
             tanh_desc_loss[node.name] = torch.mean(torch.stack(tanh_for_each_descendant), dim=0)
 
+            if torch.isnan(tanh_desc_loss[node.name]):
+                raise Exception('Tanh desc became nan')
+                # breakpoint()
+
             # loss += t_weight * tanh_loss[node.name]
-            cl_and_tanh_desc += t_weight * tanh_desc_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+            cl_and_tanh_desc += tanh_desc_weight * tanh_desc_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'TANH_DESC' in losses_used:
                 losses_used.append('TANH_DESC')
 
@@ -1325,7 +1467,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             projection_operator_2 = torch.unsqueeze(projection_operator, dim=0)#[1,num_children,768,768]
             pairwise_distance =  torch.norm(projection_operator_1-projection_operator_2+1e-10,p='fro',dim=[2,3]) #[num_children,num_children,768,768]->[num_children,num_children]
             subspace_sep_loss[node.name] += -(0.5 * torch.norm(pairwise_distance,p=1,dim=[0,1],dtype=torch.double) / \
-                                              torch.sqrt(torch.tensor(2,dtype=torch.double)).cuda()) / \
+                                              torch.sqrt(torch.tensor(2,dtype=torch.double)).to(device)) / \
                                               len(node.children)
 
             loss += subspace_sep_weight * subspace_sep_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
@@ -1338,19 +1480,34 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             classification_layer = getattr(net.module, '_'+node.name+'_classification')
             # using any below because its a relevant prototype if it has strong connection to any one of the class
             relevant_prototype_kernels = prototype_kernels.weight[(classification_layer.weight > 0.001).any(dim=0)]
-            kernel_orth_loss[node.name] = orth_dist(relevant_prototype_kernels)
+            try:
+                kernel_orth_loss[node.name] = orth_dist(relevant_prototype_kernels, device=device)
+            except:
+                kernel_orth_loss[node.name] = 0.
+                # breakpoint()
+
+            # if torch.isnan(kernel_orth_loss[node.name]):
+            #     breakpoint()
             loss += orth_weight * kernel_orth_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'KO' in losses_used:
                 losses_used.append('KO')
     
         if not pretrain:
             # finetuning or general training
-            softmax_inputs = torch.log1p(node_logits**net_normalization_multiplier)
+            if ('pipnet_sparsity' in args) and (args.pipnet_sparsity == 'n'):
+                softmax_inputs = node_logits
+            else:
+                softmax_inputs = torch.log1p(node_logits**net_normalization_multiplier)
             # softmax_tau = 0.2
             # softmax_inputs = softmax_inputs / softmax_tau
             class_loss[node.name] = criterion(softmax_inputs, \
                                                 node_y, \
                                                 node.weights) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
+
+            # if node.name == '144+147':
+            #     breakpoint()
+            # if torch.isnan(class_loss[node.name]):
+            #     breakpoint()
             # loss += cl_weight * class_loss[node.name]
             cl_and_tanh_desc += cl_weight * class_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'CL' in losses_used:
@@ -1411,6 +1568,16 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            if len(overspecifity_loss) > 0:
+                avg_overspecifity_loss = np.mean([loss_val.item() for node_name, loss_val in overspecifity_loss.items()])
+            else:
+                avg_overspecifity_loss = torch.tensor(-5) # placeholder value
+
+            if len(mask_l1_loss) > 0:
+                avg_mask_l1_loss = np.mean([loss_val.item() for node_name, loss_val in mask_l1_loss.items()])
+            else:
+                avg_mask_l1_loss = torch.tensor(-5) # placeholder value
+
             if len(act_l1_loss) > 0:
                 avg_act_l1_loss = np.mean([loss_val.item() for node_name, loss_val in act_l1_loss.items()])
             else:
@@ -1484,18 +1651,33 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             
             avg_class_loss = None
             avg_OOD_loss = None
+
+            # if pretrain:
+            #     train_iter.set_postfix_str(
+            #     f'L: {loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+            # else:
+            #     avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
+            #     avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
+            #     if finetune:
+            #         train_iter.set_postfix_str(
+            #         f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+            #     else:
+            #         train_iter.set_postfix_str(
+            #         f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_BYOL:{byol_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                f'L: {loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
             else:
                 avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_ACT_L1:{avg_act_l1_loss.item():.3f}, L_CONC_LOG_IP:{avg_conc_log_ip_loss.item():.3f}, L_ANT_CONC_LOG_IP:{avg_ant_conc_log_ip_loss.item():.3f}, LA:{a_loss.item():.2f}, L_UNI:{uni_loss.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_MM:{avg_minmaximize_loss.item():.3f}, L_OOD:{avg_OOD_loss:.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, L_BYOL:{byol_loss.item():.3f}, L_CLUS_DESC:{avg_cluster_desc_loss.item():.3f}, L_SEP_DESC:{avg_sep_desc_loss.item():.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_SS:{avg_subspace_sep_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+    
     return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, byol_loss.item(), avg_cluster_desc_loss.item(), avg_sep_desc_loss.item(), avg_tanh_desc_loss.item(), avg_subspace_sep_loss.item(), avg_conc_log_ip_loss.item(), acc
 
 
@@ -1563,11 +1745,11 @@ def align_loss(inputs, targets, EPS=1e-12):
     return loss
 
 # from https://github.com/samaonline/Orthogonal-Convolutional-Neural-Networks/blob/master/imagenet/utils.py
-def orth_dist(mat, stride=None):
+def orth_dist(mat, stride=None, device=None):
     mat = mat.reshape((mat.shape[0], -1))
     if mat.shape[0] < mat.shape[1]:
         mat = mat.permute(1,0)
-    return torch.norm( torch.t(mat)@mat - torch.eye(mat.shape[1]).cuda())
+    return torch.norm( torch.t(mat)@mat - torch.eye(mat.shape[1]).to(device))
 
 def regression_loss(x, y):
     norm_x, norm_y = F.normalize(x, p=2, dim=1), F.normalize(y, p=2, dim=1)

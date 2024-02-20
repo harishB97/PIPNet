@@ -55,6 +55,10 @@ def get_args() -> argparse.Namespace:
                         type=int,
                         default=3,
                         help='The number of epochs to finetune only classifier')
+    parser.add_argument('--epochs_finetune_mask_prune',
+                        type=int,
+                        default=999999999,
+                        help='Only the mask will be trained after this epoch')
     parser.add_argument('--optimizer',
                         type=str,
                         default='Adam',
@@ -185,6 +189,11 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='(y/n) Flag that indicates whether to use tanh loss or not.'
                         )
+    parser.add_argument('--tanh_during_second_phase',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use tanh loss during second training phase or not. Typically set no when using tanh_desc with 2.0 or high weightage'
+                        )
     parser.add_argument('--minmaximize',
                         type=str,
                         default='n',
@@ -224,6 +233,12 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use act_l1 (l1 loss on the activation map) loss or not.'
+                        )
+    # minimize_contrasting_set
+    parser.add_argument('--minimize_contrasting_set',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use minimize_contrasting_set (minimize max activation for contrasting set) loss or not.'
                         )
     parser.add_argument('--softmax',
                         type=str,
@@ -333,6 +348,22 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='Does softmax over channel instead of over the prototypes.'
                         )
+    parser.add_argument('--classifier',
+                        type=str,
+                        default='NonNegative',
+                        help='Options: NonNegative,Linear'
+                        )
+    parser.add_argument('--pipnet_sparsity',
+                        type=str,
+                        default='y',
+                        help='Whether to apply the sparsity measure introduced in PIPNet paper'
+                        )
+    parser.add_argument('--mask_prune_overspecific',
+                        type=str,
+                        default='n',
+                        help='Whether to learn a mask for pruning overspecific prototypes'
+                        )
+    
 
     
     args = parser.parse_args()
@@ -962,12 +993,12 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
             elif 'features.7' in name or 'features.6' in name:
                 params_to_freeze.append(param)
             # CUDA MEMORY ISSUES? COMMENT LINE 202-203 AND USE THE FOLLOWING LINES INSTEAD
-            # elif 'features.5' in name or 'features.4' in name:
-            #     params_backbone.append(param)
-            # else:
-            #     param.requires_grad = False
-            else:
+            elif 'features.5' in name or 'features.4' in name:
                 params_backbone.append(param)
+            else:
+                param.requires_grad = False
+            # else:
+            #     params_backbone.append(param)
     elif 'dinov2_vits14' in args.net:
         print(f"chosen network is {args.net}", flush=True)
         for name,param in net.module._net.named_parameters():
@@ -985,6 +1016,7 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
     for attr in dir(net.module):
         if attr.endswith('_classification'):
             for name, param in getattr(net.module, attr).named_parameters():
+                # breakpoint()
                 if 'weight' in name:
                     classification_weight.append(param)
                 elif 'multiplier' in name:
@@ -992,6 +1024,13 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
                 else:
                     if args.bias:
                         classification_bias.append(param)
+
+    proto_presence_weights = []
+    for attr in dir(net.module):
+        if attr.endswith('_proto_presence'):
+            # breakpoint() # type(param) # type(getattr(net.module, attr))
+            proto_presence_weights.append(getattr(net.module, attr))
+
     
     paramlist_net = [
             {"params": params_backbone, "lr": args.lr_net, "weight_decay_rate": args.weight_decay},
@@ -1005,6 +1044,8 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
     paramlist_classifier = [
             {"params": classification_weight, "lr": args.lr, "weight_decay_rate": args.weight_decay},
             {"params": classification_bias, "lr": args.lr, "weight_decay_rate": 0},
+
+            {"params": proto_presence_weights, "lr": args.lr, "weight_decay_rate": args.weight_decay},
     ]
     
     

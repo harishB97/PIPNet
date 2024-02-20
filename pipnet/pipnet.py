@@ -62,13 +62,22 @@ class PIPNet(nn.Module):
             setattr(self, '_'+node_name+'_classification', classification_layers[node_name])
         # self._classification = classification_layers
         self._multiplier = nn.Parameter(torch.ones((1,),requires_grad=True)) # this can directly be set to 2.0 and requires_grad=False, not sure why its not done
-        # self._multiplier = classification_layers.normalization_multiplier 
+        # self._multiplier = classification_layers.normalization_multiplier
         if args.softmax.split('|')[0] == 'y':
             self._softmax = nn.Softmax(dim=1)
         elif args.gumbel_softmax == 'y':
             self._gumbel_softmax = GumbelSoftmax(tau=args.gs_tau, hard=False, dim=1)
         self._num_parent_nodes = num_parent_nodes # I dont remember why this was added
         self.root = root
+
+        for node_name in add_on_layers:
+            num_prototypes = getattr(self, '_'+node_name+'_num_protos')
+            proto_presence = torch.zeros(num_prototypes, 2)
+            proto_presence = nn.Parameter(proto_presence, requires_grad=True)
+            nn.init.xavier_normal_(proto_presence, gain=1.0)
+            setattr(self, '_'+node_name+'_proto_presence', proto_presence)
+            # getattr(self, '_'+'root'+'_proto_presence').requires_grad
+            
 
         self.args = args
 
@@ -79,7 +88,7 @@ class PIPNet(nn.Module):
         # self.conv_layer_in_add_on = type(self._add_on[0]) == nn.Conv2d
 
     
-    def forward(self, xs,  inference=False):
+    def forward(self, xs,  inference=False, apply_overspecificity_mask=False):
         features = self._net(xs) 
         proto_features = {}
         proto_features_cs = {}
@@ -131,18 +140,22 @@ class PIPNet(nn.Module):
 
             if self.args.focal == 'y':
                 pooled[node.name] = pooled[node.name] - self._avg_pool(proto_features[node.name])
+            
+            if apply_overspecificity_mask:
+                mask = F.gumbel_softmax(getattr(self, '_'+node.name+'_proto_presence'), tau=0.5, hard=True, dim=-1)[:, 1].unsqueeze(0)
+                pooled[node.name] = mask * pooled[node.name]
 
             if inference:
                 pooled[node.name] = torch.where(pooled[node.name] < 0.1, 0., pooled[node.name])  #during inference, ignore all prototypes that have 0.1 similarity or lower
             out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
-
         return features, proto_features, pooled, out
     
-    def get_joint_distribution(self, out, device='cuda'):
+    def get_joint_distribution(self, out, apply_overspecificity_mask=False, device='cuda'):
         batch_size = out['root'].size(0)
         #top_level = torch.nn.functional.softmax(self.root.logits,1)            
         top_level = out['root']
-        bottom_level = self.root.distribution_over_furthest_descendents(batch_size, out)    
+        bottom_level = self.root.distribution_over_furthest_descendents(net=self, batch_size=batch_size, out=out, \
+                                                                        apply_overspecificity_mask=apply_overspecificity_mask, device='cuda')    
         names = self.root.unwrap_names_of_joint(self.root.names_of_joint_distribution())
         idx = np.argsort(names)
         bottom_level = bottom_level[:,idx]        
@@ -374,7 +387,10 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
 
     classification_layers = {}
     for node in parent_nodes:
-        classification_layers[node.name] = NonNegLinear(node.num_protos, node.num_children(), bias=True if args.bias else False)
+        if ('classifier' in args) and (args.classifier == 'Linear'):
+            classification_layers[node.name] = Linear(node.num_protos, node.num_children(), bias=True if args.bias else False)
+        else:
+            classification_layers[node.name] = NonNegLinear(node.num_protos, node.num_children(), bias=True if args.bias else False)
         
         if args.protopool == 'n':
             classification_layers[node.name].weight.requires_grad = False
@@ -390,6 +406,9 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
                 start_idx = end_idx
 
             classification_layers[node.name].weight.requires_grad = True
+
+            # if node.name == '144+147':
+            #     breakpoint()
 
         # for child_node in node.children:
         #     classification_layers[node.name+'_'+child_node.name] = NonNegLinear(node.num_protos_per_child[child_node.name], \

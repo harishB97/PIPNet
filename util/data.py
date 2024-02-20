@@ -124,7 +124,7 @@ def get_data(args: argparse.Namespace):
                                 disable_transform2 = args.disable_transform2 == 'y')
     if args.dataset =='CUB-190-imgnet-224':
         try:
-            base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
+            base_path = '/fastscratch/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
             return get_birds(True, os.path.join(base_path, 'train_segmented_imagenet_background_crop'), # train_dir
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
                                     os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
@@ -153,6 +153,25 @@ def get_data(args: argparse.Namespace):
                                     disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
         except:
             base_path = '/projects/ml4science/harishbabu/data/CUB_190/dataset'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+    if args.dataset =='CUB-190-224':
+        try:
+            base_path = '/fastscratch/harishbabu/data/CUB_190_224/dataset'
+            return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
+                                    os.path.join(base_path, 'train'), # project_dir
+                                    os.path.join(base_path, 'test_crop'), # test_dir
+                                    args.image_size, args.seed, args.validation_size, 
+                                    os.path.join(base_path, 'train'), # train_dir_pretrain
+                                    os.path.join(base_path, 'test_full'),
+                                    disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+        except:
+            base_path = '/projects/ml4science/harishbabu/data/CUB_190_224/dataset'
             return get_birds(True, os.path.join(base_path, 'train_crop'), # train_dir
                                     os.path.join(base_path, 'train'), # project_dir
                                     os.path.join(base_path, 'test_crop'), # test_dir
@@ -370,7 +389,9 @@ def get_dataloaders(args: argparse.Namespace, device, OOD=False):
         raise Exception('Do not use leave_out_classes and weighted_loss together')
 
     if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
-        leave_out_classes = args.leave_out_classes.split(',')
+        with open(args.leave_out_classes, 'r') as file:
+            leave_out_classes = [line.strip() for line in file]
+        # leave_out_classes = args.leave_out_classes.split(',')
         idx_of_classes_to_keep = set()
         name2label = projectset.class_to_idx # param
         label2name = {label:name for name, label in name2label.items()}

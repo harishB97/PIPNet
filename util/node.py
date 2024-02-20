@@ -4,6 +4,7 @@ import graphviz
 import os
 import torch.nn.functional as F
 from collections import defaultdict
+import pdb
 
 def split_value(M, n):
     quotient, remainder = divmod(M, n)
@@ -32,6 +33,12 @@ class Node:
                 num_images_of_child += class_size_count[leaf_descendent_name]
             self.num_images_of_each_child.append(num_images_of_child)
         self.weights = min(self.num_images_of_each_child) / torch.tensor(self.num_images_of_each_child, requires_grad=False)
+
+    def set_loss_weightage_using_descendants_count(self):
+        self.num_descendants_of_each_child = []
+        for child in self.children:
+            self.num_descendants_of_each_child.append(len(self.leaf_descendents_of_child[child.name]))
+        self.weights = min(self.num_descendants_of_each_child) / torch.tensor(self.num_descendants_of_each_child, requires_grad=False)
 
     def set_num_protos(self, num_protos_per_descendant, min_protos=0, split_protos=False):
         self.num_protos = max(min_protos, self.num_leaf_descendents() * num_protos_per_descendant)
@@ -274,14 +281,28 @@ class Node:
     #         return torch.ones((batch_size,1))
 
         
-    def distribution_over_furthest_descendents(self,batch_size, out, device='cuda'):
+    def distribution_over_furthest_descendents(self, net, batch_size, out, apply_overspecificity_mask=False, device='cuda'):
         if self.is_leaf():
             return torch.ones(batch_size,1).to(device)
         else:
-            # return torch.cat([torch.nn.functional.softmax(out[self.name],1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
-            #                   for i in range(self.num_children())],1)
-            return torch.cat([F.softmax(torch.log1p(out[self.name]**2),1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size, out, device) \
-                                for i in range(self.num_children())],1)            
+            if apply_overspecificity_mask:
+                with torch.no_grad():
+                    classification_weights = getattr(net, '_'+self.name+'_classification').weight
+                    proto_presence = getattr(net, '_'+self.name+'_proto_presence')
+                    proto_presence = F.gumbel_softmax(proto_presence, tau=0.5, hard=True, dim=-1)
+                    masked_classification_weights = proto_presence[:, 1].unsqueeze(0) * classification_weights
+                    all_protos_masked = False
+                    for class_idx in range(masked_classification_weights.shape[0]):
+                        if (masked_classification_weights[class_idx, :] <= 1e-3).all():
+                            all_protos_masked = True
+                            break
+                    if all_protos_masked: # if even one of the class's protos are entirely masked then assume equal probability for each child class
+                        return torch.cat([torch.tensor([1./self.num_children()]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, apply_overspecificity_mask=apply_overspecificity_mask, device=device) for i in range(self.num_children())],1)
+                    
+            # try:
+            return torch.cat([F.softmax(torch.log1p(out[self.name]**2),1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, apply_overspecificity_mask=apply_overspecificity_mask, device=device) for i in range(self.num_children())],1)            
+            # except:
+            #     pdb.set_trace()
         """
         torch.nn.functional.softmax(out[self.name],1)[:,0].view(batch_size,1)
         """
