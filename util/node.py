@@ -40,7 +40,20 @@ class Node:
             self.num_descendants_of_each_child.append(len(self.leaf_descendents_of_child[child.name]))
         self.weights = min(self.num_descendants_of_each_child) / torch.tensor(self.num_descendants_of_each_child, requires_grad=False)
 
-    def set_num_protos(self, num_protos_per_descendant, min_protos=0, split_protos=False):
+    def set_num_protos(self, num_protos_per_descendant, num_protos_per_child, min_protos=0, split_protos=False):
+
+        if num_protos_per_child > 0:
+            # self.num_protos_per_child = {}
+            # for i, child in enumerate(self.children):
+            #     self.num_protos_per_child[child.name] = num_protos_per_child
+            # self.num_protos = len(self.children) * num_protos_per_child
+            self.num_protos_per_child = {}
+            self.num_protos = 0
+            for i, child in enumerate(self.children):
+                self.num_protos_per_child[child.name] = max(num_protos_per_child, num_protos_per_descendant * child.num_leaf_descendents())
+                self.num_protos += max(num_protos_per_child, num_protos_per_descendant * child.num_leaf_descendents())
+            return
+
         self.num_protos = max(min_protos, self.num_leaf_descendents() * num_protos_per_descendant)
 
         if split_protos:
@@ -53,6 +66,9 @@ class Node:
         elif split_protos and (min_protos < (self.num_leaf_descendents() * num_protos_per_descendant)):
             for i, child in enumerate(self.children):
                 self.num_protos_per_child[child.name] = len(self.leaf_descendents_of_child[child.name]) * num_protos_per_descendant
+
+        if not split_protos:
+            raise NotImplementedError()
 
     def add_children(self, names, labels = None):
         if type(names) is not list:
@@ -214,7 +230,7 @@ class Node:
                 if node.is_leaf():
                     leaf_descendents.add(node.name)
                     leaf_descendents_of_child[self.closest_descendent_for(node.name).name].add(node.name)
-            new_active_nodes = [] 
+            new_active_nodes = []
             for node in active_nodes:
                 new_active_nodes += node.children
             active_nodes = new_active_nodes                    
@@ -281,8 +297,40 @@ class Node:
     #         return torch.ones((batch_size,1))
 
         
-    def distribution_over_furthest_descendents(self, net, batch_size, out, apply_overspecificity_mask=False, device='cuda'):
+    def distribution_over_furthest_descendents(self, net, batch_size, out, leave_out_classes=None, apply_overspecificity_mask=False, device='cuda', softmax_tau=1):
+        if leave_out_classes is None:
+            leave_out_classes = []
+
+        # for child_idx, child in enumerate(self.children):
+        #     if len(list(set(leave_out_classes) & set(self.leaf_descendents_of_child[child.name]))) > 0:
+        #         print(self.name, child.name, child_idx)
+        #         print('Without temp', F.softmax(torch.log1p(out[self.name]**2),1))
+        #         print('With temp', F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1))
+        #         pdb.set_trace()
+
+
+        # if any([(child.is_leaf() and (child.name in leave_out_classes)) for child in self.children]):
+        #     names = self.unwrap_names_of_joint(self.names_of_joint_distribution())
+        #     left_out_descendant_name = [child for child in self.children if (child.is_leaf() and (child.name in leave_out_classes))][0].name
+        #     bool_list = [name == left_out_descendant_name for name in names]
+        #     return torch.tensor([int(value) for value in bool_list]).reshape(1, -1).repeat(batch_size,1).to(device)
+        #     # return torch.ones(batch_size,1).to(device)
+        
+        if any([(child.leaf_descendents.issubset(set(leave_out_classes))) for child in self.children]):
+            names = self.unwrap_names_of_joint(self.names_of_joint_distribution())
+            left_out_descendant_name = [child for child in self.children if (child.is_leaf() and (child.name in leave_out_classes))][0].name
+            bool_list = [name == left_out_descendant_name for name in names]
+            # print(self.name, 'contains leave out class, last level possible')
+            # pdb.set_trace()
+            return torch.tensor([int(value) for value in bool_list]).reshape(1, -1).repeat(batch_size,1).to(device)
+
+
+        if len(leave_out_classes) == 0:
+            leave_out_classes = None
+
         if self.is_leaf():
+            # print(self.name, 'leaf reached')
+            # pdb.set_trace()
             return torch.ones(batch_size,1).to(device)
         else:
             if apply_overspecificity_mask:
@@ -297,10 +345,44 @@ class Node:
                             all_protos_masked = True
                             break
                     if all_protos_masked: # if even one of the class's protos are entirely masked then assume equal probability for each child class
-                        return torch.cat([torch.tensor([1./self.num_children()]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, apply_overspecificity_mask=apply_overspecificity_mask, device=device) for i in range(self.num_children())],1)
+                        
+                        # if len(set(leave_out_classes) & self.leaf_descendents) > 0:
+                        # label_to_child = {v:k for k,v in self.children_to_labels.items()}
+                        # proto_count_each_child = { label_to_child[class_idx]:(masked_classification_weights[class_idx, :] > 1e-3).sum() for class_idx in range(masked_classification_weights.shape[0])}
+                        # print(self.name, 'no proto')
+                        # print(proto_count_each_child)
+                        # pdb.set_trace()
+
+                        # return torch.cat([torch.tensor([1./self.num_children()]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
+                        #                                                                                                                                                             apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
+                        #                                                                                                                                                             softmax_tau=softmax_tau) for i in range(self.num_children())],1)
+                        return torch.cat([torch.tensor([float(self.children[i].num_leaf_descendents()/self.num_leaf_descendents())]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
+                                                                                                                                                                                    apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
+                                                                                                                                                                                    softmax_tau=softmax_tau) for i in range(self.num_children())],1)
+                        # return torch.cat([torch.tensor([1.0]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
+                        #                                                                                                                                                             apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
+                        #                                                                                                                                                             softmax_tau=softmax_tau) for i in range(self.num_children())],1)
+                    # else:
+                    #     for child_idx, child in enumerate(self.children):
+                    #         if len(list(set(leave_out_classes) & set(self.leaf_descendents_of_child[child.name]))) > 0:
+                    #             print(self.name, child.name, child_idx)
+                    #             print('Without temp', F.softmax(torch.log1p(out[self.name]**2),1))
+                    #             print('With temp', F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1))
+                    #             pdb.set_trace()
+
+            # # if len(set(leave_out_classes) & self.leaf_descendents) > 0:
+            # label_to_child = {v:k for k,v in self.children_to_labels.items()}
+            # # proto_count_each_child = { label_to_child[class_idx]:(masked_classification_weights[class_idx, :] > 1e-3).sum() for class_idx in range(masked_classification_weights.shape[0])}
+            # prob_each_child = {label_to_child[i]:F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1)[:,i] for i in range(self.num_children())}
+            # print(self.name)
+            # # print(proto_count_each_child)
+            # print(prob_each_child)
+            # pdb.set_trace()
                     
             # try:
-            return torch.cat([F.softmax(torch.log1p(out[self.name]**2),1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, apply_overspecificity_mask=apply_overspecificity_mask, device=device) for i in range(self.num_children())],1)            
+            return torch.cat([F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
+                                                                                                                                                            apply_overspecificity_mask=apply_overspecificity_mask, device=device, softmax_tau=softmax_tau) \
+                              for i in range(self.num_children())],1)            
             # except:
             #     pdb.set_trace()
         """

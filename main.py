@@ -2,7 +2,7 @@ from pipnet.pipnet import PIPNet, get_network, PIPNetBYOL
 from util.log import Log
 import torch.nn as nn
 from util.args import get_args, save_args, get_optimizer_nn
-from util.data import get_dataloaders, SubsetSequentialSampler, unshuffle_dataloader
+from util.data import get_dataloaders, SubsetSequentialSampler, unshuffle_dataloader, create_filtered_dataloader
 from util.func import init_weights_xavier
 from pipnet.train import train_pipnet, test_pipnet
 # from pipnet.test import eval_pipnet, get_thresholds, eval_ood
@@ -133,15 +133,19 @@ def run_pipnet(args=None):
         # root.add_children(['scuba_diver','African_elephant','giant_panda','lion','capuchin','gibbon','orangutan','ambulance','pickup','sports_car','laptop','sandal','wine_bottle','assault_rifle','rifle'])
     root.assign_all_descendents()
 
+    if ('y' in args.OOD_ent) and (not args.bias):
+        raise Exception('Recommended to use with bias in classification layer when using OOD_ent')
+
     # set pretrain epochs zero if align and uni are not used
     if (args.align == 'n') and (args.uni == 'n') and (args.align_pf == 'n') and (args.tanh == 'n') and (args.byol.split('|')[0] == 'n') and (args.epochs_pretrain > 0):
         raise Exception('Do not pretrain if not using any pretrain specific losses like align, uni, byol etc.')
 
     # update num of protos per node based on num_protos_per_descendant
-    if args.num_features == 0 and args.num_protos_per_descendant == 0:
-        raise Exception('Either of num_features or num_protos_per_descendant must be greater than zero')
+    if args.num_features == 0 and args.num_protos_per_descendant == 0 and args.num_protos_per_child == 0:
+        raise Exception('Either of num_features or num_protos_per_descendant or num_protos_per_child must be greater than zero')
     for node in root.nodes_with_children():
         node.set_num_protos(num_protos_per_descendant=args.num_protos_per_descendant,\
+                            num_protos_per_child=args.num_protos_per_child,\
                             min_protos=args.num_features,\
                             split_protos=('protopool' in args) and (args.protopool == 'n'))
 
@@ -187,16 +191,39 @@ def run_pipnet(args=None):
         print("Classes: ", str(classes), flush=True)
 
     if ('leave_out_classes' in args) and (args.leave_out_classes != ''):
-        # Verifying if the classes are left out 
-        unique_labels = set()
-        for xs1, xs2, ys in trainloader:
-            unique_labels.update(ys.tolist())
-        print("trainloader Unique Labels:", unique_labels)
+        with open(args.leave_out_classes, 'r') as file:
+            leave_out_classes = [line.strip() for line in file]
 
-        unique_labels = set()
-        for xs, ys in projectloader:
-            unique_labels.update(ys.tolist())
-        print("projectloader Unique Labels:", unique_labels)
+        leave_out_loader = testloader
+        classes_to_keep = leave_out_classes
+        idx_of_classes_to_keep = set()
+        name2label = leave_out_loader.dataset.class_to_idx # param
+        label2name = {label:name for name, label in name2label.items()}
+        for label in label2name:
+            # NOTE: Keeping the left out classes here
+            if label2name[label] in classes_to_keep:
+                idx_of_classes_to_keep.add(label)
+
+        target_indices = []
+        for i in range(len(leave_out_loader.dataset)):
+            *_, label = leave_out_loader.dataset[i]
+            if label in idx_of_classes_to_keep:
+                target_indices.append(i)
+        sampler = SubsetRandomSampler(target_indices)
+        to_shuffle = False
+
+        leave_out_loader = create_filtered_dataloader(leave_out_loader, sampler)
+
+        # # Verifying if the classes are left out 
+        # unique_labels = set()
+        # for xs1, xs2, ys in trainloader:
+        #     unique_labels.update(ys.tolist())
+        # print("trainloader Unique Labels:", unique_labels)
+
+        # unique_labels = set()
+        # for xs, ys in projectloader:
+        #     unique_labels.update(ys.tolist())
+        # print("projectloader Unique Labels:", unique_labels)
 
     print("Node count:", len(root.nodes_with_children()))
 
@@ -287,19 +314,21 @@ def run_pipnet(args=None):
         elif args.state_dict_dir_backbone != '':
             checkpoint = torch.load(args.state_dict_dir_backbone,map_location=device)
             # load backbone 'module._net' from checkpoint
-            filtered_checkpoint_dict = {key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._net')}
+            filtered_checkpoint_dict = {key:val for key, val in checkpoint['model_state_dict'].items() if (key.startswith('module._net') or key.startswith('module._add_on'))}
             if ('byol' in args) and args.byol == 'y':
                 filtered_checkpoint_dict.update({key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._projector')})
                 filtered_checkpoint_dict.update({key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._predictor')})
                 filtered_checkpoint_dict.update({key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._target_feature_net')})
                 filtered_checkpoint_dict.update({key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._target_projector')})
             net.load_state_dict(filtered_checkpoint_dict,strict=False) 
-            print(f"Backbone loaded from {args.state_dict_dir_backbone}", flush=True)
-            # initialize add on
-            # net.module._add_on.apply(init_weights_xavier)
-            for attr in dir(net.module):
-                if attr.endswith('_add_on'):
-                    getattr(net.module, attr).apply(init_weights_xavier)
+            print(f"Backbone and add-on loaded from {args.state_dict_dir_backbone}", flush=True)
+
+            # NOTE: This makes sense only for hypersphere style contrastive learning
+            # # initialize add on
+            # # net.module._add_on.apply(init_weights_xavier)
+            # for attr in dir(net.module):
+            #     if attr.endswith('_add_on'):
+            #         getattr(net.module, attr).apply(init_weights_xavier)
 
             # # initialize classification
             # for attr in dir(net.module):
@@ -627,6 +656,15 @@ def run_pipnet(args=None):
                                                 tanh_desc=('y' in args.tanh_desc), cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', \
                                                 align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                                 minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
+                if args.leave_out_classes.strip() != '':
+                    test_info, log_dict = test_pipnet(net, leave_out_loader, optimizer_net, optimizer_classifier, \
+                                            scheduler_net, scheduler_classifier, criterion, epoch, \
+                                                args.epochs, device, pretrain=False, finetune=finetune, \
+                                                test_loader_OOD=testloader_OOD, kernel_orth=args.kernel_orth == 'y', \
+                                                    tanh_desc=('y' in args.tanh_desc), cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', align=args.align == 'y', uni=args.uni == 'y', \
+                                                    align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
+                                                    minmaximize=args.minmaximize == 'y', wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, \
+                                                    log=log, args=args, leave_out_classes=leave_out_classes)
 
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         # test_info = test_pipnet(net, testloader, criterion, epoch, device, progress_prefix= 'Test Epoch', wandb_logging=True, wandb_log_subdir = 'test')
@@ -768,34 +806,39 @@ def run_pipnet(args=None):
     args.batch_size = 1
     trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
 
-    for loadername in args.viz_loader.split(','):
+    if len(classes) <= 30:
 
-        if loadername == 'projectloader':
-            foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
-                                foldername=foldername, find_non_descendants=False, device=device)
-            print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
-                             foldername=foldername, find_non_descendants=True, device=device)
-            print("Done visualizing non-descendants!" + loadername, flush=True)
+        for loadername in args.viz_loader.split(','):
 
-        if loadername == 'testloader':
-            foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
-                                foldername=foldername, find_non_descendants=False, device=device)
-            print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
-                             foldername=foldername, find_non_descendants=True, device=device)
-            print("Done visualizing non-descendants!" + loadername, flush=True)
+            if loadername == 'projectloader':
+                foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
+                save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
+                                    foldername=foldername, find_non_descendants=False, device=device)
+                print("Done visualizing descendants! " + loadername, flush=True)
+                save_images_topk(args, unshuffle_dataloader(projectloader), net, root, save_path=args.log_dir, \
+                                foldername=foldername, find_non_descendants=True, device=device)
+                print("Done visualizing non-descendants!" + loadername, flush=True)
 
-        elif loadername == 'test_projectloader':
-            foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
-            save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
-                                foldername=foldername, find_non_descendants=False, device=device)
-            print("Done visualizing descendants! " + loadername, flush=True)
-            save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
-                             foldername=foldername, find_non_descendants=True, device=device)
-            print("Done visualizing non-descendants!" + loadername, flush=True)
+            if loadername == 'testloader':
+                foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
+                save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
+                                    foldername=foldername, find_non_descendants=False, device=device)
+                print("Done visualizing descendants! " + loadername, flush=True)
+                save_images_topk(args, unshuffle_dataloader(testloader), net, root, save_path=args.log_dir, \
+                                foldername=foldername, find_non_descendants=True, device=device)
+                print("Done visualizing non-descendants!" + loadername, flush=True)
+
+            elif loadername == 'test_projectloader':
+                foldername = f'descendent_specific_topk_heatmap_{loadername}_ep=last'
+                save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
+                                    foldername=foldername, find_non_descendants=False, device=device)
+                print("Done visualizing descendants! " + loadername, flush=True)
+                save_images_topk(args, unshuffle_dataloader(test_projectloader), net, root, save_path=args.log_dir, \
+                                foldername=foldername, find_non_descendants=True, device=device)
+                print("Done visualizing non-descendants!" + loadername, flush=True)
+    else:
+        print('Skipping visualization as there are too many classes')
+
 
 class Tee(object):
     def __init__(self, name, mode, outstream):

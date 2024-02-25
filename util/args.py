@@ -159,6 +159,10 @@ def get_args() -> argparse.Namespace:
                         type=int,
                         default=4,
                         help='Used for deciding the num of protos to assign for each node based on the number of descendants.')
+    parser.add_argument('--num_protos_per_child',
+                        type=int,
+                        default=0,
+                        help='Used for deciding the num of protos to assign for each node based on the number of descendants.')
     parser.add_argument('--copy_files',
                         type=str,
                         default='y',
@@ -239,6 +243,11 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='n',
                         help='(y/n) Flag that indicates whether to use minimize_contrasting_set (minimize max activation for contrasting set) loss or not.'
+                        )
+    parser.add_argument('--OOD_ent',
+                        type=str,
+                        default='n',
+                        help='(y/n) Flag that indicates whether to use OOD entropy loss (recommended to use with bias in classification layer) loss or not.'
                         )
     parser.add_argument('--softmax',
                         type=str,
@@ -363,6 +372,10 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='Whether to learn a mask for pruning overspecific prototypes'
                         )
+    parser.add_argument('--cl_weight',
+                        type=float,
+                        default=2.0,
+                        help='Weight for classification loss')
     
 
     

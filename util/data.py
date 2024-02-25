@@ -40,6 +40,30 @@ def unshuffle_dataloader(dataloader):
     )
     return new_dataloader
 
+from torch.utils.data import Sampler, SubsetRandomSampler
+
+def create_filtered_dataloader(dataloader, new_sampler):
+    if type(dataloader.dataset) == ImageFolder:
+        dataset = dataloader.dataset
+    else:
+        dataset = dataloader.dataset.dataset.dataset
+    new_dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=dataloader.batch_size,
+        shuffle=False,
+        sampler=new_sampler,
+        num_workers=dataloader.num_workers,
+        pin_memory=dataloader.pin_memory,
+        drop_last=dataloader.drop_last,
+        timeout=dataloader.timeout,
+        worker_init_fn=dataloader.worker_init_fn,
+        multiprocessing_context=dataloader.multiprocessing_context,
+        generator=dataloader.generator,
+        prefetch_factor=dataloader.prefetch_factor,
+        persistent_workers=dataloader.persistent_workers
+    )
+    return new_dataloader
+
 class SubsetSequentialSampler(Sampler):
     def __init__(self, indices):
         self.indices = indices

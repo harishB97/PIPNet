@@ -23,6 +23,17 @@ import pdb
 
 OOD_LABEL = -1
 
+def entropy_loss(probs):
+    """
+    Calculate the entropy of a probability distribution.
+    :param probs: Tensor of shape (N, C) where N is the batch size and C is the number of classes.
+                  Each row should be a probability distribution over classes for a sample, i.e., sum to 1.
+    :return: Scalar tensor representing the mean entropy across the batch.
+    """
+    probs = torch.clamp(probs, min=1e-9)  # Prevent log(0)
+    batch_entropy = -torch.sum(probs * torch.log(probs), dim=1)
+    return torch.mean(batch_entropy)
+
 def ema(byol_tau, online_network, target_network):
     with torch.no_grad():  # Ensure no gradients are computed for this operation
         for target_param, online_param in zip(target_network.parameters(), online_network.parameters()):
@@ -136,7 +147,7 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         unif_weight = 3. #3. # 0.
         t_weight = 2.
         mm_weight = 2.
-        cl_weight = 2.
+        cl_weight = args.cl_weight # 2.
         # optional losses
         OOD_loss_weight = 0.2
         orth_weight = 0.5
@@ -446,16 +457,16 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
     # Logging to console
     # train_info['node_accuracy'] = node_accuracy
     print('\tFine accuracy:', round(train_info['fine_accuracy'], 2))
-    for node_name in node_accuracy:
-        acc = node_accuracy[node_name]["accuracy"]
-        f1 = node_accuracy[node_name]['f1']
-        samples = node_accuracy[node_name]["n_examples"]
-        log_string = f'\tNode name: {node_name}, acc: {acc}, f1:{f1}, samples: {samples}'
-        for child in net.module.root.get_node(node_name).children:
-            child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
-            child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
-            log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(torch.divide(child_n_correct, child_n_examples).item(), 2)}'
-        print(log_string)
+    # for node_name in node_accuracy:
+    #     acc = node_accuracy[node_name]["accuracy"]
+    #     f1 = node_accuracy[node_name]['f1']
+    #     samples = node_accuracy[node_name]["n_examples"]
+    #     log_string = f'\tNode name: {node_name}, acc: {acc}, f1:{f1}, samples: {samples}'
+    #     for child in net.module.root.get_node(node_name).children:
+    #         child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']
+    #         child_n_examples = node_accuracy[node_name]['children'][child.name]['n_examples']
+    #         log_string += ", " + f'{child.name}={child_n_correct}/{child_n_examples}={round(torch.divide(child_n_correct, child_n_examples).item(), 2)}'
+    #     print(log_string)
 
 
     # Logging CSV
@@ -487,7 +498,8 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                 epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Test Epoch', wandb_logging=True, \
                 test_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, tanh=False, \
                 minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, byol_tau_base=0.9995, step_info=None, \
-                    wandb_run=None, pretrain_epochs=0, log:Log=None, args=None, apply_overspecificity_mask=False):
+                    wandb_run=None, pretrain_epochs=0, log:Log=None, args=None, apply_overspecificity_mask=False, leave_out_classes=None, \
+                        path_prob_softmax_tau=1):
 
     root = net.module.root
     dataset = test_loader.dataset
@@ -561,7 +573,7 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         unif_weight = 3. # 0.
         t_weight = 2.
         mm_weight = 2.
-        cl_weight = 2.
+        cl_weight = args.cl_weight # 2.
         # optional losses
         OOD_loss_weight = 0.2
         orth_weight = 0.1
@@ -667,14 +679,20 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
                 
             total_acc+=acc # DUMMY can be removed
             total_loss+=loss.item()
+
+            # print(ys)
             
-            _, preds_joint = net.module.get_joint_distribution(out, apply_overspecificity_mask=apply_overspecificity_mask)
+            _, preds_joint = net.module.get_joint_distribution(out, leave_out_classes=leave_out_classes, apply_overspecificity_mask=apply_overspecificity_mask, softmax_tau=path_prob_softmax_tau)
             preds_joint = preds_joint[ys != OOD_LABEL]
             _, fine_predicted = torch.max(preds_joint.data, 1)
             target = ys[ys != OOD_LABEL]
             fine_correct = fine_predicted == target
             n_fine_correct += fine_correct.sum().item()
             n_samples += target.size(0)
+
+            # print(n_fine_correct / n_samples)
+            # print(preds_joint.shape)
+            # pdb.set_trace()
 
     class_loss_ep_mean /= float(i+1)
     a_loss_pf_ep_mean /= float(i+1)
@@ -830,6 +848,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     overspecifity_loss = {}
     mask_l1_loss = {}
     minimize_contrasting_set_loss = {}
+    OOD_ent_loss = {}
 
     losses_used = []
 
@@ -915,7 +934,10 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     for node in root.nodes_with_children():
         children_idx = torch.tensor([name in node.leaf_descendents for name in batch_names])
         batch_names_coarsest = [node.closest_descendent_for(name).name for name in batch_names if name in node.leaf_descendents]
-        node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).to(device)#.cuda()
+        try:
+            node_y = torch.tensor([node.children_to_labels[name] for name in batch_names_coarsest]).to(device)#.cuda()
+        except:
+            pdb.set_trace()
 
         if len(node_y) == 0:
             continue
@@ -938,7 +960,10 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
 
                 for child_node in node.children:
                     classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                    child_class_idx = node.children_to_labels[child_node.name]
+                    try:
+                        child_class_idx = node.children_to_labels[child_node.name]
+                    except:
+                        pdb.set_trace()
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
                     num_relevant_protos = relevant_proto_idx.shape[0]
                     total_num_relevant_protos += num_relevant_protos
@@ -987,7 +1012,11 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     losses_used.append('MASK_PRUNING')
 
         if (not pretrain) and (not finetune) and ('y' in args.minimize_contrasting_set):
-            minimize_contrasting_set_weight = 0.1
+            if (len(args.minimize_contrasting_set.split('|')) > 2):
+                minimize_contrasting_set_weight = float(args.minimize_contrasting_set.split('|')[2])
+            else:
+                minimize_contrasting_set_weight = 0.1
+
             TOPK = int(args.minimize_contrasting_set.split('|')[1]) if (len(args.minimize_contrasting_set.split('|')) > 1) else 1
             EPS=1e-12
             num_protos = pooled[node.name].shape[-1]
@@ -1491,6 +1520,19 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             loss += orth_weight * kernel_orth_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'KO' in losses_used:
                 losses_used.append('KO')
+
+        if (not pretrain) and ('y' in args.OOD_ent):
+            OOD_ent_loss_weight =  float(args.OOD_ent.split('|')[1])
+            not_children_idx = torch.tensor([name not in node.leaf_descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
+            if not_children_idx.sum().item() > 0:
+                OOD_logits = out[node.name][not_children_idx] # [sum(not_children_idx), node.num_children()]
+                OOD_prob = F.softmax(torch.log1p(OOD_logits**2), dim=1)
+                OOD_ent_loss[node.name] = entropy_loss(OOD_prob)
+                # print(OOD_ent_loss[node.name])
+                # breakpoint()
+                loss += OOD_ent_loss_weight * OOD_ent_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
+                if not 'OOD_ENT' in losses_used:
+                    losses_used.append('OOD_ENT')
     
         if not pretrain:
             # finetuning or general training
@@ -1523,6 +1565,10 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                 cl_and_tanh_desc += OOD_loss_weight * OOD_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
                 if not 'OOD' in losses_used:
                     losses_used.append('OOD')
+
+                
+
+                
         # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines
         # else:
         #     uni_loss[node.name] = (uniform_loss(F.normalize(pooled1+EPS,dim=1)) + uniform_loss(F.normalize(pooled2+EPS,dim=1)))/2.
@@ -1568,6 +1614,11 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
     #     acc = correct.item() / float(len(ys))
     if print: 
         with torch.no_grad():
+            if len(OOD_ent_loss) > 0:
+                avg_OOD_ent_loss = np.mean([loss_val.item() for node_name, loss_val in OOD_ent_loss.items()])
+            else:
+                avg_OOD_ent_loss = torch.tensor(-5) # placeholder value
+
             if len(overspecifity_loss) > 0:
                 avg_overspecifity_loss = np.mean([loss_val.item() for node_name, loss_val in overspecifity_loss.items()])
             else:
@@ -1667,16 +1718,16 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
 
             if pretrain:
                 train_iter.set_postfix_str(
-                f'L: {loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                f'L: {loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.2f}, LT:{avg_tanh_loss.item():.3f}, L_OOD_ENT:{avg_OOD_ent_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
             else:
                 avg_class_loss = np.mean([node_class_loss.item() for node_name, node_class_loss in class_loss.items()])
                 avg_OOD_loss = np.mean([node_OOD_loss.item() for node_name, node_OOD_loss in OOD_loss.items()]) if OOD_loss_required else -5
                 if finetune:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_OOD_ENT:{avg_OOD_ent_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)
                 else:
                     train_iter.set_postfix_str(
-                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
+                    f'L:{loss.item():.3f},LC:{avg_class_loss.item():.3f}, L_OVSP:{avg_overspecifity_loss.item():.3f}, L_MASKL1:{avg_mask_l1_loss.item():.3f}, LA_PF:{avg_a_loss_pf.item():.3f}, LT:{avg_tanh_loss.item():.3f}, L_ORTH:{avg_kernel_orth_loss:.3f}, LT_DESC:{avg_tanh_desc_loss.item():.3f}, L_OOD_ENT:{avg_OOD_ent_loss.item():.3f}, losses_used:{"+".join(losses_used)}', refresh=False)            
     
     return loss, class_loss, a_loss, tanh_loss, minmaximize_loss, OOD_loss, kernel_orth_loss, uni_loss, avg_class_loss, avg_a_loss_pf, avg_tanh_loss, avg_minmaximize_loss, avg_OOD_loss, avg_kernel_orth_loss, byol_loss.item(), avg_cluster_desc_loss.item(), avg_sep_desc_loss.item(), avg_tanh_desc_loss.item(), avg_subspace_sep_loss.item(), avg_conc_log_ip_loss.item(), acc
 

@@ -10,6 +10,7 @@ from util.node import Node
 import numpy as np
 from collections import defaultdict, OrderedDict
 from pipnet_byol.pipnet_byol import PIPNetBYOL
+import pdb
 
 def functional_UnitConv2D(in_features, weight, bias, stride = 1, padding=0):
     normalized_weight = F.normalize(weight.data, p=2, dim=(1, 2, 3)) # Normalize the kernels to unit vectors
@@ -150,15 +151,18 @@ class PIPNet(nn.Module):
             out[node.name] = getattr(self, '_'+node.name+'_classification')(pooled[node.name]) #shape (bs*2, num_classes) # these are logits
         return features, proto_features, pooled, out
     
-    def get_joint_distribution(self, out, apply_overspecificity_mask=False, device='cuda'):
+    def get_joint_distribution(self, out, leave_out_classes=None, apply_overspecificity_mask=False, device='cuda', softmax_tau=1):
         batch_size = out['root'].size(0)
         #top_level = torch.nn.functional.softmax(self.root.logits,1)            
         top_level = out['root']
-        bottom_level = self.root.distribution_over_furthest_descendents(net=self, batch_size=batch_size, out=out, \
-                                                                        apply_overspecificity_mask=apply_overspecificity_mask, device='cuda')    
+        bottom_level = self.root.distribution_over_furthest_descendents(net=self, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes,\
+                                                                        apply_overspecificity_mask=apply_overspecificity_mask, device='cuda', softmax_tau=softmax_tau)    
         names = self.root.unwrap_names_of_joint(self.root.names_of_joint_distribution())
         idx = np.argsort(names)
         bottom_level = bottom_level[:,idx]        
+
+        # num_classes = max([idx for _, idx in class_to_idx]) + 1
+        # torch.zeros((bottom_level.shape[0], num_classes))
         return top_level, bottom_level
     
     def get_classification_layers(self):
@@ -384,6 +388,9 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
                 nn.AdaptiveMaxPool2d(output_size=(1,1)), #outputs (bs, ps,1,1)
                 nn.Flatten() #outputs (bs, ps)
                 ) 
+
+    if args.bias:
+        print('--------- Using bias in Classification layer ---------')
 
     classification_layers = {}
     for node in parent_nodes:
