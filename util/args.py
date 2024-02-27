@@ -372,6 +372,11 @@ def get_args() -> argparse.Namespace:
                         default='n',
                         help='Whether to learn a mask for pruning overspecific prototypes'
                         )
+    parser.add_argument('--sg_before_masking',
+                        type=str,
+                        default='y',
+                        help='Stop gradient before the overspecificity score is fed into the masking module'
+                        )
     parser.add_argument('--cl_weight',
                         type=float,
                         default=2.0,

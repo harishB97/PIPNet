@@ -987,10 +987,16 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     # max_pooled_each_descendant -> [num descendants in batch, num_relevant_protos]
                     if (len(args.mask_prune_overspecific.split('|')) > 2): # is there is a boosting factor
                         boosting_factor = float(args.mask_prune_overspecific.split('|')[2])
-                        overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant.clone().detach() * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
+                        if ('y' in args.sg_before_masking):
+                            overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant.clone().detach() * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
+                        else:
+                            overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
+
                     else: # without boosting factor
-                        overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
-                    
+                        if ('y' in args.sg_before_masking):
+                            overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
+                        else:
+                            overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0) * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
                     mask_l1_loss_current_node += proto_presence[relevant_proto_idx, 1].sum()
                     # print(overspecifity_loss_current_node.requires_grad)
                     # print(mask_l1_loss_current_node.requires_grad)
