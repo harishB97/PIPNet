@@ -165,6 +165,17 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
                                     os.path.join(base_path, 'test_segmented_imagenet_background_full'),
                                     disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+    if args.dataset =='CUB-190-imgnet-hpnet-224':
+        base_path_hpnet = '/projects/ml4science/harishbabu/data/CUB_190_hpnet_224/dataset_imgnet_hpnet_bb_crop'
+        base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
+        # base_path = '/fastscratch/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'
+        return get_birds(True, os.path.join(base_path_hpnet, 'train_augmented'), # train_dir
+                                os.path.join(base_path, 'train_segmented_imagenet_background'), # project_dir
+                                os.path.join(base_path, 'test_segmented_imagenet_background_crop'), # test_dir
+                                args.image_size, args.seed, args.validation_size, 
+                                os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
+                                os.path.join(base_path, 'test_segmented_imagenet_background_full'),
+                                disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
     if args.dataset =='CUB-190':
         try:
             base_path = '/fastscratch/harishbabu/data/CUB_190/dataset'

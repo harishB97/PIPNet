@@ -987,13 +987,13 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     # max_pooled_each_descendant -> [num descendants in batch, num_relevant_protos]
                     if (len(args.mask_prune_overspecific.split('|')) > 2): # is there is a boosting factor
                         boosting_factor = float(args.mask_prune_overspecific.split('|')[2])
-                        if ('y' in args.sg_before_masking):
+                        if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
                             overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant.clone().detach() * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
                         else:
                             overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
 
                     else: # without boosting factor
-                        if ('y' in args.sg_before_masking):
+                        if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
                             overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
                         else:
                             overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0) * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
@@ -1527,7 +1527,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             if not 'KO' in losses_used:
                 losses_used.append('KO')
 
-        if (not pretrain) and ('y' in args.OOD_ent):
+        if (not pretrain) and ('OOD_ent' in args) and ('y' in args.OOD_ent):
             OOD_ent_loss_weight =  float(args.OOD_ent.split('|')[1])
             not_children_idx = torch.tensor([name not in node.leaf_descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
             if not_children_idx.sum().item() > 0:
