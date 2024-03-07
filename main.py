@@ -806,7 +806,7 @@ def run_pipnet(args=None):
     args.batch_size = 1
     trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
 
-    if len(classes) <= 30:
+    if len(classes) <= 60:
 
         for loadername in args.viz_loader.split(','):
 

@@ -785,11 +785,13 @@ def test_pipnet(net, test_loader, optimizer_net, optimizer_classifier, scheduler
         wandb_run.log(log_dict, step=epoch if pretrain else (epoch+pretrain_epochs))
 
     test_info['node_accuracy'] = node_accuracy
-    print('\tFine accuracy:', round(test_info['fine_accuracy'], 2))
+    print('\tFine accuracy:', round(test_info['fine_accuracy'], 4))
     for node_name in node_accuracy:
         acc = node_accuracy[node_name]["accuracy"]
         f1 = node_accuracy[node_name]['f1']
         samples = node_accuracy[node_name]["n_examples"]
+        if int(samples) == 0:
+            continue
         log_string = f'\tNode name: {node_name}, acc: {acc}, f1:{f1}, samples: {samples}'
         for child in net.module.root.get_node(node_name).children:
             child_n_correct = node_accuracy[node_name]['children'][child.name]['n_correct']

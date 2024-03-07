@@ -191,9 +191,9 @@ def save_images_topk(args, dataloader, net, root, save_path, foldername, topk=10
     for node in root.nodes_with_children():
     #     if node.name == 'root':
     #         continue
-        non_leaf_children_names = [child.name for child in node.children if not child.is_leaf()]
-        if len(non_leaf_children_names) == 0: # if all the children are leaf nodes then skip this node
-            continue
+        # non_leaf_children_names = [child.name for child in node.children if not child.is_leaf()]
+        # if len(non_leaf_children_names) == 0: # if all the children are leaf nodes then skip this node
+        #     continue
 
         name2label = dataloader.dataset.class_to_idx # param
         label2name = {label:name for name, label in name2label.items()}
