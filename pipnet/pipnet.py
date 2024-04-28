@@ -46,7 +46,7 @@ class PIPNet(nn.Module):
                  ):
         super().__init__()
         assert num_classes > 0
-        self._num_features = args.num_features
+        # self._num_features = args.num_features
         self._num_classes = num_classes
         # self._num_prototypes = num_prototypes # this is only the minimum number of protos per node, might vary for each node
         self._net = feature_net
@@ -303,8 +303,8 @@ def get_network(num_classes: int, args: argparse.Namespace, root=None):
     if 'dinov2_vits14' in args.net:
         features = DinoV2(model_name=args.net, latent_shape=(int(args.image_size/14), int(args.image_size/14)))
         first_add_on_layer_in_channels = 384
-        if args.num_features == 0:
-            raise Exception('Do not set num_features to 0 for dinov2')
+        # if args.num_features == 0:
+        #     raise Exception('Do not set num_features to 0 for dinov2')
 
         if args.basic_cnext_gaussian_multiplier != '':
             raise NotImplementedError
