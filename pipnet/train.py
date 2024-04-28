@@ -1039,7 +1039,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
 
                     if len(relevant_proto_idx) == 0:
                         # likely to happen when leave_out_classes is used
-                        # breakpoint()
+                        breakpoint()
                         assert child_node.is_leaf()
                         assert args.leave_out_classes.strip() != '' 
                         continue
