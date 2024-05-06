@@ -1,2 +1,2 @@
-phylogeny_path: './data/phylogenyFish/fish38_phylogeny_modified_names.tre'
+phylogeny_path: '/home/harishbabu/data/phylogenyFish/fish38_phylogeny_modified_names.tre'
 phyloDistances_string: None

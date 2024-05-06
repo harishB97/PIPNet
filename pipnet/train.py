@@ -962,10 +962,7 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
 
                 for child_node in node.children:
                     classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                    try:
-                        child_class_idx = node.children_to_labels[child_node.name]
-                    except:
-                        pdb.set_trace()
+                    child_class_idx = node.children_to_labels[child_node.name]
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
                     num_relevant_protos = relevant_proto_idx.shape[0]
                     total_num_relevant_protos += num_relevant_protos
@@ -975,18 +972,14 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
                         if torch.sum(descendant_idx).item() == 0: # no of descendants in batch is zero
                             continue
-                        # pooled[node.name][descendant_idx] -> [num descendants in batch, num_protos]
                         max_vals, _ = torch.max(pooled[node.name][descendant_idx][:, relevant_proto_idx], dim=0, keepdim=True) # [1, num_relevant_protos]
-                        # try:
                         max_pooled_each_descendant = torch.cat([max_pooled_each_descendant, max_vals], dim=0)
-                        # except:
-                        #     breakpoint()
-                    
-                    # breakpoint()
-                    # print(proto_presence.requires_grad)
+
+                    if max_pooled_each_descendant.shape[0] == 0: # if none of the descendants are in the batch
+                        continue
+
                     proto_presence = F.gumbel_softmax(proto_presence, tau=0.5, hard=False, dim=-1)
-                    # print(proto_presence.requires_grad)
-                    # max_pooled_each_descendant -> [num descendants in batch, num_relevant_protos]
+
                     if (len(args.mask_prune_overspecific.split('|')) > 2): # is there is a boosting factor
                         boosting_factor = float(args.mask_prune_overspecific.split('|')[2])
                         if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
@@ -995,26 +988,31 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                             overspecifity_loss_current_node += (-1) * (torch.prod(torch.clamp(max_pooled_each_descendant * boosting_factor, max=1.0), dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
 
                     else: # without boosting factor
-                        if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
-                            overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
+                        num_descendants_in_batch = max_pooled_each_descendant.shape[0]
+                        if ('geometric_mean_overspecificity_score' in args) and ('y' in args.geometric_mean_overspecificity_score):
+                            overspecificity_score = torch.prod(max_pooled_each_descendant.pow(1/num_descendants_in_batch), dim=0)
                         else:
-                            overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0) * proto_presence[relevant_proto_idx, 1]).sum() #* ((1.1) ** len(child_node.leaf_descendents))
+                            overspecificity_score = torch.prod(max_pooled_each_descendant, dim=0)
+                        if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
+                            overspecificity_score = overspecificity_score.clone().detach()
+                        overspecifity_loss_current_node += (-1) * (overspecificity_score * proto_presence[relevant_proto_idx, 1]).sum()
+
+                        # if ('sg_before_masking' in args) and ('y' in args.sg_before_masking):
+                        #     overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0).clone().detach() * proto_presence[relevant_proto_idx, 1]).sum()
+                        # else:
+                        #     overspecifity_loss_current_node += (-1) * (torch.prod(max_pooled_each_descendant, dim=0) * proto_presence[relevant_proto_idx, 1]).sum()
                     mask_l1_loss_current_node += proto_presence[relevant_proto_idx, 1].sum()
-                    # print(overspecifity_loss_current_node.requires_grad)
-                    # print(mask_l1_loss_current_node.requires_grad)
-                    # breakpoint() # torch.prod(max_pooled_each_descendant[:, 0], dim=0)
+
 
                 overspecifity_loss_current_node /= total_num_relevant_protos
                 mask_l1_loss_current_node /= total_num_relevant_protos
 
                 overspecifity_loss[node.name] = (overspecifity_loss_weight * overspecifity_loss_current_node) \
                                                     / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                # if torch.isnan(overspecifity_loss[node.name]):
-                #     breakpoint()
+
                 mask_l1_loss[node.name] = (mask_l1_loss_weight * mask_l1_loss_current_node) \
                                                     / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                # if torch.isnan(mask_l1_loss[node.name]):
-                #     breakpoint()
+
                 loss += overspecifity_loss[node.name] + mask_l1_loss[node.name]
                 if not 'MASK_PRUNING' in losses_used:
                     losses_used.append('MASK_PRUNING')
@@ -1037,9 +1035,18 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     child_class_idx = node.children_to_labels[child_node.name]
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-5).squeeze(-1)
 
+                    # 
+                    # [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
+                    # for node in root.nodes_with_children():
+                    #     for child_name, child_class_idx in node.children_to_labels.items():
+                    #         if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0):
+                    #             print(child_name)
+
                     if len(relevant_proto_idx) == 0:
+                        no_proto_node_names = [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
                         # likely to happen when leave_out_classes is used
                         breakpoint()
+                        pdb.set_trace()
                         assert child_node.is_leaf()
                         assert args.leave_out_classes.strip() != '' 
                         continue
@@ -1306,6 +1313,10 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
                     if len(relevant_proto_idx) == 0:
+                        no_proto_node_names = [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
+                        # likely to happen when leave_out_classes is used
+                        breakpoint()
+                        pdb.set_trace()
                         assert args.leave_out_classes.strip() != '' # this is likely to happen when using leave_out_classes
                         continue 
                     descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
