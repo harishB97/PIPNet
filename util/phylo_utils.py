@@ -4,7 +4,7 @@ from ete3 import TreeNode
 
 
 def construct_discretized_phylo_tree(phylogeny_path, phyloDistances_string):
-    phylo = PhylogenyCUB(phylogeny_path) # '/home/harishbabu/data/phlyogenyCUB'
+    phylo = PhylogenyCUB(phylogeny_path)
     root = Node("root")
     phyloDistances = [float(x) for x in phyloDistances_string.split(',')[::-1]] + [1]
     num_levels = len(phyloDistances)
@@ -62,7 +62,7 @@ def construct_discretized_phylo_tree(phylogeny_path, phyloDistances_string):
     return root
 
 def construct_phylo_tree(phylogeny_path):
-    phylo = PhylogenyCUB(phylogeny_path) # '/home/harishbabu/data/phlyogenyCUB'
+    phylo = PhylogenyCUB(phylogeny_path)
     root = Node("root")
 
     def set_names_to_internal_nodes(node: TreeNode):
@@ -98,12 +98,3 @@ def construct_phylo_tree(phylogeny_path):
         build_tree(root, ete3_child)
         
     return root
-
-if __name__ == '__main__':
-    # root = construct_discretized_phylo_tree(phylogeny_path='/home/harishbabu/data/phlyogenyCUB/1_tree-consensus-Hacket-27Species-modified_cub-names_v1.phy',
-    #                       phyloDistances_string='0.93,0.83,0.63')
-
-    root = construct_phylo_tree(phylogeny_path='/raid/harishbabu/data/phlyogenyCUB/1_tree-consensus-Hacket-27Species-modified_cub-names_v1.phy')
-    # print(getattr(root, 'children_names')())
-    # root.save_visualization()
-    print(root)

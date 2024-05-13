@@ -39,36 +39,24 @@ class Node:
         for child in self.children:
             self.num_descendants_of_each_child.append(len(self.leaf_descendents_of_child[child.name]))
         self.weights = min(self.num_descendants_of_each_child) / torch.tensor(self.num_descendants_of_each_child, requires_grad=False)
-
-    def set_num_protos(self, num_protos_per_descendant, num_protos_per_child, min_protos=0, split_protos=False):
-
-        if num_protos_per_child > 0:
-            # self.num_protos_per_child = {}
-            # for i, child in enumerate(self.children):
-            #     self.num_protos_per_child[child.name] = num_protos_per_child
-            # self.num_protos = len(self.children) * num_protos_per_child
+    
+    def set_num_protos(self, num_protos_per_descendant, num_protos_per_child, min_protos_per_child=0, split_protos=False):
+        if (num_protos_per_child > 0) and (num_protos_per_descendant > 0):
+            raise Exception('Use either of num_protos_per_descendant or num_protos_per_child not both')
+        elif (num_protos_per_child == 0) and (num_protos_per_descendant == 0):
+            raise Exception('Use either of num_protos_per_descendant or num_protos_per_child both cannot be zero')
+        elif num_protos_per_child > 0:
             self.num_protos_per_child = {}
             self.num_protos = 0
             for i, child in enumerate(self.children):
-                self.num_protos_per_child[child.name] = max(num_protos_per_child, num_protos_per_descendant * child.num_leaf_descendents())
-                self.num_protos += max(num_protos_per_child, num_protos_per_descendant * child.num_leaf_descendents())
-            return
-
-        self.num_protos = max(min_protos, self.num_leaf_descendents() * num_protos_per_descendant)
-
-        if split_protos:
+                self.num_protos_per_child[child.name] = max(num_protos_per_child, min_protos_per_child)
+                self.num_protos += self.num_protos_per_child[child.name]
+        elif num_protos_per_descendant > 0:
             self.num_protos_per_child = {}
-
-        if split_protos and (min_protos > (self.num_leaf_descendents() * num_protos_per_descendant)):
-            parts = split_value(min_protos, self.num_children())
+            self.num_protos = 0
             for i, child in enumerate(self.children):
-                self.num_protos_per_child[child.name] = parts[i]
-        elif split_protos and (min_protos < (self.num_leaf_descendents() * num_protos_per_descendant)):
-            for i, child in enumerate(self.children):
-                self.num_protos_per_child[child.name] = len(self.leaf_descendents_of_child[child.name]) * num_protos_per_descendant
-
-        if not split_protos:
-            raise NotImplementedError()
+                self.num_protos_per_child[child.name] = max(min_protos_per_child, num_protos_per_descendant * child.num_leaf_descendents())
+                self.num_protos += self.num_protos_per_child[child.name]
 
     def add_children(self, names, labels = None):
         if type(names) is not list:
@@ -92,21 +80,7 @@ class Node:
         if self.num_children() > 0:
             return False
         return True
-
-    # def assign_children_names(self):
-    #     self.children_names = self.children_names()
-
-    # def assign_all_children_names(self):        
-    #     active_nodes = []
-    #     active_nodes += [self]
-    #     while len(active_nodes) > 0:
-    #         for node in active_nodes:
-    #             node.assign_children_names()
-    #             nodel.children_names.sort()
-    #         new_active_nodes = [] 
-    #         for node in active_nodes:
-    #             new_active_nodes += node.children
-    #         active_nodes = new_active_nodes           
+          
 
     def get_node(self,name):                
         active_nodes = [self]
@@ -271,14 +245,6 @@ class Node:
     def num_leaf_descendents(self):
         return len(self.leaf_descendents)
 
-
-    # def closest_descendent_for(self,name):
-    #     breakpoint()
-    # 	if name in self.children_names(): 
-    # 		return self.get_node(name)
-    # 	else:
-    #         return [child for child in self.children if name in child.descendents][0]
-
     def closest_descendent_for(self,name): 
         if name in self.children_names():
             return self.get_node(name)
@@ -289,39 +255,15 @@ class Node:
     def has_logits(self):
         return self.num_children() > 1
 
-    # def get_distribution(self):                
-    #     if self.has_logits():
-    #         return torch.nn.functional.softmax(self.logits,1)
-    #     else:
-    #         batch_size = self.logits.size(0)
-    #         return torch.ones((batch_size,1))
-
         
     def distribution_over_furthest_descendents(self, net, batch_size, out, leave_out_classes=None, apply_overspecificity_mask=False, device='cuda', softmax_tau=1):
         if leave_out_classes is None:
             leave_out_classes = []
 
-        # for child_idx, child in enumerate(self.children):
-        #     if len(list(set(leave_out_classes) & set(self.leaf_descendents_of_child[child.name]))) > 0:
-        #         print(self.name, child.name, child_idx)
-        #         print('Without temp', F.softmax(torch.log1p(out[self.name]**2),1))
-        #         print('With temp', F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1))
-        #         pdb.set_trace()
-
-
-        # if any([(child.is_leaf() and (child.name in leave_out_classes)) for child in self.children]):
-        #     names = self.unwrap_names_of_joint(self.names_of_joint_distribution())
-        #     left_out_descendant_name = [child for child in self.children if (child.is_leaf() and (child.name in leave_out_classes))][0].name
-        #     bool_list = [name == left_out_descendant_name for name in names]
-        #     return torch.tensor([int(value) for value in bool_list]).reshape(1, -1).repeat(batch_size,1).to(device)
-        #     # return torch.ones(batch_size,1).to(device)
-        
         if any([(child.leaf_descendents.issubset(set(leave_out_classes))) for child in self.children]):
             names = self.unwrap_names_of_joint(self.names_of_joint_distribution())
             left_out_descendant_name = [child for child in self.children if (child.is_leaf() and (child.name in leave_out_classes))][0].name
             bool_list = [name == left_out_descendant_name for name in names]
-            # print(self.name, 'contains leave out class, last level possible')
-            # pdb.set_trace()
             return torch.tensor([int(value) for value in bool_list]).reshape(1, -1).repeat(batch_size,1).to(device)
 
 
@@ -329,8 +271,6 @@ class Node:
             leave_out_classes = None
 
         if self.is_leaf():
-            # print(self.name, 'leaf reached')
-            # pdb.set_trace()
             return torch.ones(batch_size,1).to(device)
         else:
             if apply_overspecificity_mask:
@@ -346,53 +286,13 @@ class Node:
                             break
                     if all_protos_masked: # if even one of the class's protos are entirely masked then assume equal probability for each child class
                         
-                        # if len(set(leave_out_classes) & self.leaf_descendents) > 0:
-                        # label_to_child = {v:k for k,v in self.children_to_labels.items()}
-                        # proto_count_each_child = { label_to_child[class_idx]:(masked_classification_weights[class_idx, :] > 1e-3).sum() for class_idx in range(masked_classification_weights.shape[0])}
-                        # print(self.name, 'no proto')
-                        # print(proto_count_each_child)
-                        # pdb.set_trace()
-
-                        # return torch.cat([torch.tensor([1./self.num_children()]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
-                        #                                                                                                                                                             apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
-                        #                                                                                                                                                             softmax_tau=softmax_tau) for i in range(self.num_children())],1)
                         return torch.cat([torch.tensor([float(self.children[i].num_leaf_descendents()/self.num_leaf_descendents())]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
                                                                                                                                                                                     apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
                                                                                                                                                                                     softmax_tau=softmax_tau) for i in range(self.num_children())],1)
-                        # return torch.cat([torch.tensor([1.0]*batch_size).view(batch_size,1).to(device) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
-                        #                                                                                                                                                             apply_overspecificity_mask=apply_overspecificity_mask, device=device,\
-                        #                                                                                                                                                             softmax_tau=softmax_tau) for i in range(self.num_children())],1)
-                    # else:
-                    #     for child_idx, child in enumerate(self.children):
-                    #         if len(list(set(leave_out_classes) & set(self.leaf_descendents_of_child[child.name]))) > 0:
-                    #             print(self.name, child.name, child_idx)
-                    #             print('Without temp', F.softmax(torch.log1p(out[self.name]**2),1))
-                    #             print('With temp', F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1))
-                    #             pdb.set_trace()
-
-            # # if len(set(leave_out_classes) & self.leaf_descendents) > 0:
-            # label_to_child = {v:k for k,v in self.children_to_labels.items()}
-            # # proto_count_each_child = { label_to_child[class_idx]:(masked_classification_weights[class_idx, :] > 1e-3).sum() for class_idx in range(masked_classification_weights.shape[0])}
-            # prob_each_child = {label_to_child[i]:F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1)[:,i] for i in range(self.num_children())}
-            # print(self.name)
-            # # print(proto_count_each_child)
-            # print(prob_each_child)
-            # pdb.set_trace()
                     
-            # try:
             return torch.cat([F.softmax(torch.log1p(out[self.name]**2) / softmax_tau,1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(net=net, batch_size=batch_size, out=out, leave_out_classes=leave_out_classes, \
                                                                                                                                                             apply_overspecificity_mask=apply_overspecificity_mask, device=device, softmax_tau=softmax_tau) \
                               for i in range(self.num_children())],1)            
-            # except:
-            #     pdb.set_trace()
-        """
-        torch.nn.functional.softmax(out[self.name],1)[:,0].view(batch_size,1)
-        """
-        # if not self.has_logits():
-        #     return torch.ones(batch_size,1).cuda()
-        # else:
-        #     return torch.cat([torch.nn.functional.softmax(self.logits,1)[:,i].view(batch_size,1) * self.children[i].distribution_over_furthest_descendents(batch_size) \
-        #                       for i in range(self.num_children())],1)            
 
     def names_of_joint_distribution(self):
         if self.num_children() == 1:
@@ -404,24 +304,6 @@ class Node:
 
 
     def unwrap_names_of_joint(self,names):
-        # # poorly written function for unwrapping nested lists up to depth 3 -- will cause bug if class hierarchy is too deep
-        # new_list = []
-        # for item in names:
-        #     if type(item) is not list:
-        #         new_list.append(item)
-        #     else:
-        #         for subitem in item:
-        #             if type(subitem) is not list:
-        #                 new_list.append(subitem)
-        #             else:
-        #                 for subsubitem in subitem:
-        #                     if type(subsubitem) is not list:
-        #                         new_list.append(subsubitem)
-        #                     else:
-        #                         for subsubsubitem in subsubitem:
-        #                             if type(subsubsubitem) is not list:
-        #                                 new_list.append(subsubsubitem)
-
         def contains_list(names):
             for name in names:
                 if type(name) is list:
@@ -468,10 +350,11 @@ class Node:
 
 
     def save_visualization(self):
-        save_path='/home/harishbabu/projects/interpretable-image/HPnet/figs'
+        save_path='misc/tree_viz'
         filename='tree'
         graph = graphviz.Digraph(comment='Tree Visualization')
         self._visualize(graph)
+        os.makedirs(save_path, exist_ok=True)
         graph.render(filename=os.path.join(save_path, filename), format='png', view=True)
         return graph
     
@@ -492,7 +375,6 @@ class Node:
 
 # for debugging, run node.py
 if __name__ == "__main__":
-
     x = Node('cats',0)
     x.add_children(['leopard','tiger'])
     x.add_children(['lion','house cat'])
@@ -501,29 +383,8 @@ if __name__ == "__main__":
     x.add_children_to('house cat',['tony','strappy'])
     x.add_children_to('tony',['paws','tail'])
     x.add_children_to('paws',['terrible'])
-    #print(x.children[2].children[0].name)
-    # print(x.children_names())
-    # print(lion.children_names())
-    # print(lion.parent.name)
-    # print(x.get_node('test'))
-    # setattr(x,"test",2)
-    # print(x.test)
-    # print(x.name)
-    # print(x.children_to_labels)
-    # print(x.children)
     print(x.get_child("lion").name)
     print(getattr(x,"children"))
-    # print(x.class_to_num_children()) 
-
     full_list = x.names_of_joint_distribution()
     print(full_list)
     print(x.unwrap_names_of_joint(full_list))
-    #print([item for sublist in full_list for item in sublist])
-    
-    # root = Node('root')
-    # root.add_children(['vehicle','animal'])
-    # root.add_children_to('vehicle',['airplane','automobile','ship','truck'])
-    # root.add_children_to('animal',['bird','cat','deer','dog','frog','horse'])
-    
-
-

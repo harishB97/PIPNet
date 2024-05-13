@@ -1,3 +1,5 @@
+# adopted from https://github.com/elhamod/phylonn
+
 import os
 import pandas as pd
 import math
@@ -5,10 +7,7 @@ import pickle
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
-# For phylogeny parsing
-# !pip install opentree
 from opentree import OT
-# !pip install ete3
 from ete3 import Tree, PhyloTree
 
 # Constants
@@ -213,6 +212,7 @@ class Phylogeny:
                 self.fix_tree(treeFileNameAndPath)
 
         self.tree = PhyloTree(treeFileNameAndPath, format=format_)
+
 
 class PhylogenyCUB:
     # Phylogeny class for CUB dataset
