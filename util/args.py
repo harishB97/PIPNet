@@ -136,11 +136,6 @@ def get_args() -> argparse.Namespace:
                         default=0.1,
                         help='Weight of prototype orthogonality loss'
                         )
-    parser.add_argument('--copy_files',
-                        type=str,
-                        default='y',
-                        help='(y/n) Flag that indicates whether to copy all py, sh, ipynb, yaml files.'
-                        )
     parser.add_argument('--ovsp_weight',
                         type=float,
                         default=0.05,
@@ -153,12 +148,12 @@ def get_args() -> argparse.Namespace:
                         )
     parser.add_argument('--wandb',
                         type=str,
-                        default='y',
+                        default='n',
                         help='(y/n) Flag to enable/disable wandb logging'
                         )
     parser.add_argument('--weighted_ce_loss',
                         type=str,
-                        default='n',
+                        default='y',
                         help='(y/n) Flag to indicate whether to use weighted loss for classification. This actually uses weighted NLLLoss'
                         )
     parser.add_argument('--leave_out_classes',

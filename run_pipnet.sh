@@ -30,8 +30,6 @@
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
 python main.py --log_dir './runs/Testing-cleanedupcode' \
-               --copy_files "y" \
-               --wandb "y" \
                --dataset CUB-190-imgnet-224 \
                --net convnext_tiny_26 \
                --batch_size 256 \
@@ -45,7 +43,9 @@ python main.py --log_dir './runs/Testing-cleanedupcode' \
                --num_workers 8 \
                --phylo_config ./configs/cub190_phylogeny.yaml \
                --num_protos_per_child 10 \
-               --weighted_ce_loss "y" \
+
+
+python main.py --log_dir './runs/hcompnet_cub190_cnext26' --dataset CUB-190-imgnet-224 --net convnext_tiny_26 --batch_size 256 --batch_size_pretrain 256 --epochs 75 --epochs_pretrain 10 --epochs_finetune_classifier 3 --epochs_finetune_mask 60 --freeze_epochs 10 --gpu_ids '0,1' --num_workers 8 --phylo_config ./configs/cub190_phylogeny.yaml --num_protos_per_child 10
 
 
 # python main.py --log_dir './runs/Testing-cleanedupcode' \

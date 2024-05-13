@@ -26,28 +26,6 @@ import wandb
 from collections import Counter
 
 
-def copy_files(src_dir, dest_dir, extensions, skip_folders=None):
-	"""
-	Copies all .py files from src_dir to dest_dir while preserving directory structure.
-	"""
-	for root, dirs, files in os.walk(src_dir):
-		skip_this_folder = False
-		for skip_folder in skip_folders:
-			if os.path.commonprefix([root, os.path.join(src_dir, skip_folder)]) == os.path.join(src_dir, skip_folder):
-				skip_this_folder = True
-		if skip_this_folder:
-			continue
-		for file in files:
-			if file.split('.')[-1] in extensions:
-				src_file_path = os.path.join(root, file)
-				dest_file_path = os.path.join(dest_dir, os.path.relpath(src_file_path, src_dir))
-				if os.path.commonprefix([os.path.abspath(src_file_path), os.path.abspath(dest_dir)]) != os.path.abspath(dest_dir):
-					dest_file_dir = os.path.dirname(dest_file_path)
-					if not os.path.exists(dest_file_dir):
-						os.makedirs(dest_file_dir)
-					shutil.copy(src_file_path, dest_file_path)
-
-
 def run_pipnet(args=None):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
@@ -66,12 +44,6 @@ def run_pipnet(args=None):
     print("Log dir: ", args.log_dir, flush=True)
     save_args(args, log.metadata_dir)
 
-    if args.copy_files == 'y':
-        copy_files(src_dir=os.getcwd(), dest_dir=os.path.join(args.log_dir, 'source_clone'), \
-                    extensions=['py', 'yaml', '.ipynb', '.sh'], skip_folders=['runs', 'wandb', 'SLURM'])
-    else:
-        print('Disabled copy_files')
-    
     wandb_run = wandb.init(project="pipnet", name=os.path.basename(args.log_dir), config=vars(args), reinit=False)
 
     phylo_config = OmegaConf.load(args.phylo_config)
