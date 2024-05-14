@@ -41,10 +41,48 @@ data/
     └── README.md
 ```
 
+Run the following command to create ```CUB-190``` dataset. Running the command creates ```dataset_cub190``` and ```images_cub190``` folders
+
+```
+python preprocess_data/prepare_cub190.py --segment
+```
+
+The folder structure should now look like this  
+```
+data/
+└── CUB_200_2011/
+    ├── attributes/ # Not used
+    ├── dataset_cub190/ # Newly created
+    ├── images/
+    ├── images_cub190/ # Newly created
+    ├── parts/ 
+    ├── image_class_labels.txt
+    ├── train_test_split.txt
+    ├── images.txt
+    ├── bounding_boxes.txt
+    ├── classes.txt
+    └── README.md
+```
 
 ## Training HComP-Net
 In order to train the model run the following command.
 The following command is for running the model on ```cub190``` dataset. Running ```cub190``` with a ```batch_size``` of 256 required two a100 GPUs, therefore ```gpu_ids``` is set to ```0,1```. For running on single gpu remove the ```gpu_ids``` argument, as it assume single GPU by default.
 ```
-python main.py --log_dir './runs/hcompnet_cub190_cnext26' --dataset CUB-190-imgnet-224 --net convnext_tiny_26 --batch_size 256 --batch_size_pretrain 256 --epochs 75 --epochs_pretrain 10 --epochs_finetune_classifier 3 --epochs_finetune_mask 60 --freeze_epochs 10 --gpu_ids '0,1' --num_workers 8 --phylo_config ./configs/cub190_phylogeny.yaml --num_protos_per_child 10
+python main.py --log_dir './runs/hcompnet_cub190_cnext26' --dataset CUB-190 --net convnext_tiny_26 --batch_size 256 --batch_size_pretrain 256 --epochs 75 --epochs_pretrain 10 --epochs_finetune_classifier 3 --epochs_finetune_mask 60 --freeze_epochs 10 --gpu_ids '0,1' --num_workers 8 --phylo_config ./configs/cub190_phylogeny.yaml --num_protos_per_child 10
 ```
+
+## Visualizing the prototypes
+
+We create Top-K Visualizations to analyze prototypes, where we visualize the Top-K nearest image patches for an hierarchical prototype from each leaf descendant. Follow the steps in the ```plot_topk_visualizations.ipynb```, to create Top-K visualization.
+
+## Analyzing the semantic quality of prototypes
+
+Follows instructions in ```part_purity_cub.ipynb``` to quantitatively analyze the semantic quality of prototypes
+
+# Repositories referred
+
+The following repositories have been referred to create this code base
+
+# References
+
+
