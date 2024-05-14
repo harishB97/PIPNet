@@ -22,9 +22,9 @@ pip install -r requirements.txt
 
 ## Setting up datasets
 
-### CUB-190
+#### CUB-190
 
-Download CUB-200-2011 dataset and save it in the ```/data``` path
+Download CUB-200-2011 [1] dataset and save it in the ```/data``` path
 
 Once downloaded the folder structure should look something like this  
 ```
@@ -82,7 +82,13 @@ Follows instructions in ```part_purity_cub.ipynb``` to quantitatively analyze th
 # Repositories referred
 
 The following repositories have been referred to create this code base
+- [PIPNet](https://github.com/M-Nauta/PIPNet) [2]
+- [HPnet](https://github.com/peterbhase/interpretable-image) [3]
+- [PhyloNN](https://github.com/elhamod/phylonn) [4]
 
 # References
 
-
+- [1] Wah, Catherine, Steve Branson, Peter Welinder, Pietro Perona, and Serge Belongie. "The caltech-ucsd birds-200-2011 dataset." (2011).
+- [2] Nauta, M., Schlötterer, J., van Keulen, M. and Seifert, C., 2023. Pip-net: Patch-based intuitive prototypes for interpretable image classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 2744-2753).
+- [3] Hase, P., Chen, C., Li, O. and Rudin, C., 2019, October. Interpretable image recognition with hierarchical prototypes. In Proceedings of the AAAI Conference on Human Computation and Crowdsourcing (Vol. 7, pp. 32-40).
+- [4] Elhamod, M., 2023, August. Discovering Novel Biological Traits From Images Using Phylogeny-Guided Neural Networks. In Proceedings of the 29th ACM SIGKDD Conference on Knowledge Discovery and Data Mining (pp. 3966-3978).
