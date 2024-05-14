@@ -77,7 +77,7 @@ We create Top-K Visualizations to analyze prototypes, where we visualize the Top
 
 ## Analyzing the semantic quality of prototypes
 
-Follows instructions in ```part_purity_cub.ipynb``` to quantitatively analyze the semantic quality of prototypes
+Follow instructions in ```part_purity_cub.ipynb``` to quantitatively analyze the semantic quality of prototypes
 
 # Repositories referred
 
