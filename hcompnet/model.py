@@ -2,7 +2,7 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features, convnext_tiny_7_features, apply_gaussian_multiplier_to_convnext_stage
+from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features, convnext_tiny_7_features
 import torch
 from torch import Tensor
 from util.node import Node
@@ -87,13 +87,7 @@ class HComPNet(nn.Module):
         return [getattr(self, attr) for attr in dir(self) if attr.endswith('_classification')] 
 
 
-base_architecture_to_features = {'resnet18': resnet18_features,
-                                 'resnet34': resnet34_features,
-                                 'resnet50': resnet50_features,
-                                 'resnet50_inat': resnet50_features_inat,
-                                 'resnet101': resnet101_features,
-                                 'resnet152': resnet152_features,
-                                 'convnext_tiny_26': convnext_tiny_26_features,
+base_architecture_to_features = {'convnext_tiny_26': convnext_tiny_26_features,
                                  'convnext_tiny_13': convnext_tiny_13_features,
                                  'convnext_tiny_7': convnext_tiny_7_features}
 

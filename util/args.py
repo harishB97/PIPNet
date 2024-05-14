@@ -25,7 +25,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--net',
                         type=str,
                         default='convnext_tiny_26',
-                        help='Base network used as backbone of HComP-Net. Default is convnext_tiny_26 with adapted strides to output 26x26 latent representations. Other option is convnext_tiny_13 that outputs 13x13 (smaller and faster to train, less fine-grained). Pretrained network on iNaturalist is only available for resnet50_inat. Options are: resnet18, resnet34, resnet50, resnet50_inat, resnet101, resnet152, convnext_tiny_26 and convnext_tiny_13.')
+                        help='Base network used as backbone of HComP-Net. Default is convnext_tiny_26 with adapted strides to output 26x26 latent representations. Other option is convnext_tiny_13 that outputs 13x13 (smaller and faster to train, less fine-grained)')
     parser.add_argument('--batch_size',
                         type=int,
                         default=64,
@@ -237,43 +237,7 @@ def get_optimizer_nn(net, args: argparse.Namespace) -> torch.optim.Optimizer:
     params_to_train = []
     params_backbone = []
     # set up optimizer
-    if 'resnet50' in args.net: 
-        # freeze resnet50 except last convolutional layer
-        for name,param in net.module._net.named_parameters():
-            if 'layer4.2' in name:
-                params_to_train.append(param)
-            elif 'layer4' in name or 'layer3' in name:
-                params_to_freeze.append(param)
-            elif 'layer2' in name:
-                params_backbone.append(param)
-            else: #such that model training fits on one gpu. 
-                param.requires_grad = False
-                # params_backbone.append(param)
-    elif 'resnet18' in args.net: 
-        # freeze resnet50 except last convolutional layer
-        for name,param in net.module._net.named_parameters():
-            if 'layer4.1' in name:
-                params_to_train.append(param)
-            elif 'layer4' in name or 'layer3' in name:
-                params_to_freeze.append(param)
-            # elif 'layer2' in name:
-            #     params_backbone.append(param)
-            else: #such that model training fits on one gpu. 
-                # param.requires_grad = False
-                params_backbone.append(param)
-    elif 'resnet34' in args.net: 
-        # freeze resnet50 except last convolutional layer
-        for name,param in net.module._net.named_parameters():
-            if 'layer4.2' in name:
-                params_to_train.append(param)
-            elif 'layer4' in name or 'layer3' in name:
-                params_to_freeze.append(param)
-            # elif 'layer2' in name:
-            #     params_backbone.append(param)
-            else: #such that model training fits on one gpu. 
-                # param.requires_grad = False
-                params_backbone.append(param)
-    elif 'convnext' in args.net:
+    if 'convnext' in args.net:
         print("chosen network is convnext", flush=True)
         for name,param in net.module._net.named_parameters():
             if 'features.7.2' in name: 
