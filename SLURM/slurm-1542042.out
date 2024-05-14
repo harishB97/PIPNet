@@ -1,6 +1,0 @@
-start load env and run python
-Resetting modules to system default
-Resetting modules to system default
-/cm/local/apps/slurm/var/spool/job1542042/slurm_script: line 17: activate: No such file or directory
-/home/harishbabu/.conda/envs/hpnet1/bin/python
-slurmstepd: error: *** JOB 1542042 ON tc-dgx002 CANCELLED AT 2023-06-19T17:01:18 ***

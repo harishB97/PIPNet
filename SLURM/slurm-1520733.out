@@ -1,5 +1,0 @@
-start load env and run python
-Resetting modules to system default
-Resetting modules to system default
-/cm/local/apps/slurm/var/spool/job1520733/slurm_script: line 17: activate: No such file or directory
-/home/harishbabu/.conda/envs/hpnet1/bin/python
