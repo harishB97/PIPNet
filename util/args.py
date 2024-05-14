@@ -118,7 +118,7 @@ def get_args() -> argparse.Namespace:
     parser.add_argument('--seed',
                         type=int,
                         default=1,
-                        help='Random seed. Note that there will still be differences between runs due to nondeterminism. See https://pytorch.org/docs/stable/notes/randomness.html')
+                        help='Random seed. Note that there will still be differences between runs due to nondeterminism.')
     parser.add_argument('--gpu_ids',
                         type=str,
                         default='',

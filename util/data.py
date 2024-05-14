@@ -407,7 +407,6 @@ class TwoAugSupervisedDataset(torch.utils.data.Dataset):
         return len(self.dataset)
 
 
-# function copied from https://pytorch.org/vision/stable/_modules/torchvision/transforms/autoaugment.html#TrivialAugmentWide (v0.12) and adapted
 class TrivialAugmentWideNoColor(transforms.TrivialAugmentWide):
     def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
         return {

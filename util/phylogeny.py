@@ -1,5 +1,3 @@
-# adopted from https://github.com/elhamod/phylonn
-
 import os
 import pandas as pd
 import math

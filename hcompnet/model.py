@@ -98,7 +98,6 @@ base_architecture_to_features = {'resnet18': resnet18_features,
                                  'convnext_tiny_13': convnext_tiny_13_features,
                                  'convnext_tiny_7': convnext_tiny_7_features}
 
-# adapted from https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
 class NonNegLinear(nn.Module):
     """Applies a linear transformation to the incoming data with non-negative weights`
     """

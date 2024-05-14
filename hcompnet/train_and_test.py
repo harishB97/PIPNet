@@ -184,7 +184,6 @@ def calculate_loss(epoch, net, features, proto_features, pooled, out, ys, net_no
 
         node_logits = out[node.name][children_idx]
         
-        # Alignment and tanh loss as described in https://github.com/M-Nauta/PIPNet/tree/main
         if (not finetune):
             pf1, pf2 = proto_features[node.name][children_idx].chunk(2)
             embv2 = pf2.flatten(start_dim=2).permute(0,2,1).flatten(end_dim=1)
@@ -334,7 +333,6 @@ def calculate_loss(epoch, net, features, proto_features, pooled, out, ys, net_no
     return loss
 
 
-# from https://gitlab.com/mipl/carl/-/blob/main/losses.py
 def align_loss(inputs, targets, EPS=1e-12):
     assert inputs.shape == targets.shape
     assert targets.requires_grad == False
@@ -344,7 +342,6 @@ def align_loss(inputs, targets, EPS=1e-12):
     return loss
 
 
-# from https://github.com/samaonline/Orthogonal-Convolutional-Neural-Networks/blob/master/imagenet/utils.py
 def orth_dist(mat, stride=None, device=None):
     mat = mat.reshape((mat.shape[0], -1))
     if mat.shape[0] < mat.shape[1]:
