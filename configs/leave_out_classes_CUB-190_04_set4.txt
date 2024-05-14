@@ -1,4 +1,0 @@
-cub_030_Fish_Crow
-cub_198_Rock_Wren
-cub_014_Indigo_Bunting
-cub_185_Bohemian_Waxwing

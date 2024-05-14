@@ -1,7 +1,0 @@
-cub_030_Fish_Crow
-cub_198_Rock_Wren
-cub_147_Least_Tern
-cub_014_Indigo_Bunting
-cub_083_White_breasted_Kingfisher
-cub_138_Tree_Swallow
-cub_185_Bohemian_Waxwing

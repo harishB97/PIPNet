@@ -22,11 +22,25 @@ pip install -r requirements.txt
 
 ## Setting up datasets
 
-### Downloading phylogeny
+### CUB-190
 
-### Downloading datasets
+Download CUB-200-2011 dataset and save it in the ```/data``` path
 
-### Downloading CUB meta files (for evaluations)
+Once downloaded the folder structure should look something like this  
+```
+data/
+└── CUB_200_2011/
+    ├── attributes/ # Not used
+    ├── images/
+    ├── parts/ 
+    ├── image_class_labels.txt
+    ├── train_test_split.txt
+    ├── images.txt
+    ├── bounding_boxes.txt
+    ├── classes.txt
+    └── README.md
+```
+
 
 ## Training HComP-Net
 In order to train the model run the following command.
