@@ -29,7 +29,7 @@
 
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
-python main.py --log_dir './runs/219-178like_nprotos=30pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=05epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_CUB-190-imgnet-224_WeightedCE_with-equalize-aug_img=224' \
+python main.py --log_dir './runs/220-178like_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=05epsEps=60Cl=2.0NoTanhDescMinCont=0.1_CUB-190-imgnet-224_WeightedCE_with-equalize-aug_img=224' \
                --training_wheels "n" \
                --copy_files "y" \
                --wandb "y" \
@@ -52,19 +52,19 @@ python main.py --log_dir './runs/219-178like_nprotos=30pc-cnext26_PruningBF=1.1N
                --state_dict_dir_net '' \
                --dir_for_saving_images 'Visualization_results' \
                --seed 1 \
-               --gpu_ids '0,1,2' \
+               --gpu_ids '0,1' \
                --num_workers 8 \
                --phylo_config ./configs/cub190_phylogeny.yaml \
                --experiment_note "" \
                --kernel_orth "y" \
                --num_features 0 \
                --num_protos_per_descendant 0 \
-               --num_protos_per_child 30 \
+               --num_protos_per_child 10 \
                --align "n" \
                --uni "n" \
                --align_pf "y" \
                --tanh "y" \
-               --tanh_desc "y|0.05" \
+               --tanh_desc "n" \
                --tanh_during_second_phase 'y' \
                --sg_before_masking 'y' \
                --softmax "y|1" \
