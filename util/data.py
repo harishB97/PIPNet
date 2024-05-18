@@ -356,6 +356,16 @@ def get_data(args: argparse.Namespace):
                                 os.path.join(base_path, 'val'),
                                 disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection, using the same as test_dir but its different in other dataset definitions
 
+    if args.dataset =='BUT-30-224':
+        base_path = '/projects/ml4science/harishbabu/data/Butterfly_Heliconius_30'
+        return get_birds(True, os.path.join(base_path, 'train'), # train_dir
+                                os.path.join(base_path, 'train'), # project_dir, using the same as train_dir but its different in other dataset definitions
+                                os.path.join(base_path, 'test'), # test_dir
+                                args.image_size, args.seed, args.validation_size, 
+                                os.path.join(base_path, 'train'), # train_dir_pretrain, using the same as train_dir but its different in other dataset definitions
+                                os.path.join(base_path, 'test'),
+                                disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection, using the same as test_dir but its different in other dataset definitions
+
     if args.dataset =='FISH-38-224':
         base_path = '/home/harishbabu/data/Fish38_224/'
         return get_birds(True, os.path.join(base_path, 'train'), # train_dir

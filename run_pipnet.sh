@@ -29,14 +29,14 @@
 
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
-python main.py --log_dir './runs/220-178like_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=05epsEps=60Cl=2.0NoTanhDescMinCont=0.1_CUB-190-imgnet-224_WeightedCE_with-equalize-aug_img=224' \
+python main.py --log_dir './runs/225-BUT30_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_BUT-30-imgnet-224_WeightedCE_with-equalize-aug_img=224' \
                --training_wheels "n" \
                --copy_files "y" \
                --wandb "y" \
-               --dataset CUB-190-imgnet-224 \
+               --dataset BUT-30-224 \
                --net convnext_tiny_26 \
-               --batch_size 256 \
-               --batch_size_pretrain 256 \
+               --batch_size 64 \
+               --batch_size_pretrain 128 \
                --epochs 75 \
                --epochs_pretrain 10 \
                --epochs_finetune 0 \
@@ -54,7 +54,7 @@ python main.py --log_dir './runs/220-178like_nprotos=10pc-cnext26_PruningBF=1.1N
                --seed 1 \
                --gpu_ids '0,1' \
                --num_workers 8 \
-               --phylo_config ./configs/cub190_phylogeny.yaml \
+               --phylo_config ./configs/but30_phylogeny.yaml \
                --experiment_note "" \
                --kernel_orth "y" \
                --num_features 0 \
@@ -64,7 +64,7 @@ python main.py --log_dir './runs/220-178like_nprotos=10pc-cnext26_PruningBF=1.1N
                --uni "n" \
                --align_pf "y" \
                --tanh "y" \
-               --tanh_desc "n" \
+               --tanh_desc "y|0.05" \
                --tanh_during_second_phase 'y' \
                --sg_before_masking 'y' \
                --softmax "y|1" \
@@ -78,7 +78,7 @@ python main.py --log_dir './runs/220-178like_nprotos=10pc-cnext26_PruningBF=1.1N
                --pipnet_sparsity 'y' \
                --mask_prune_overspecific 'y|0|1.1' \
                --geometric_mean_overspecificity_score 'n' \
-               --minimize_contrasting_set 'y|1|0.1' \
+               --minimize_contrasting_set 'y' \
                --leave_out_classes "" \
                --cl_weight 2.0 \
                --OOD_ent 'n' \
