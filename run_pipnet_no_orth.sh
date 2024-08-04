@@ -27,26 +27,18 @@
 # # CUB-190-224
 # # FISH-38-224
 
-# --epochs 75 \
-# --epochs_pretrain 10 \
-# --epochs_finetune 0 \
-# --epochs_finetune_classifier 3 \
-# --epochs_finetune_mask_prune 60 \
-# --freeze_epochs 10 \
-# --mask_prune_overspecific 'y|0|1.1' \
-
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
-TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=8 main_dist.py --log_dir './runs/227-INAT-BIRDS_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_INAT-BIRDS_WeightedCE_with-equalize-aug_img=224' \
+python main.py --log_dir './runs/224-NoOrth178like_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=05epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_CUB-190-imgnet-224_WeightedCE_with-equalize-aug_img=224' \
                --training_wheels "n" \
-               --copy_files "n" \
+               --copy_files "y" \
                --wandb "y" \
-               --dataset INAT-BIRDS \
+               --dataset CUB-190-imgnet-224 \
                --net convnext_tiny_26 \
-               --batch_size 64 \
-               --batch_size_pretrain 96 \
-               --epochs 60 \
-               --epochs_pretrain 3 \
+               --batch_size 256 \
+               --batch_size_pretrain 256 \
+               --epochs 75 \
+               --epochs_pretrain 10 \
                --epochs_finetune 0 \
                --epochs_finetune_classifier 3 \
                --epochs_finetune_mask_prune 60 \
@@ -60,11 +52,11 @@ TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=8 main_dist.py --log_di
                --state_dict_dir_net '' \
                --dir_for_saving_images 'Visualization_results' \
                --seed 1 \
-               --gpu_ids '0,1,2,3,4,5,6,7' \
+               --gpu_ids '0,1' \
                --num_workers 8 \
-               --phylo_config ./configs/inat_bird_phylogeny.yaml \
+               --phylo_config ./configs/cub190_phylogeny.yaml \
                --experiment_note "" \
-               --kernel_orth "y" \
+               --kernel_orth "n" \
                --num_features 0 \
                --num_protos_per_descendant 0 \
                --num_protos_per_child 10 \
@@ -84,9 +76,9 @@ TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=8 main_dist.py --log_di
                --viz_loader 'testloader,projectloader' \
                --classifier 'NonNegative' \
                --pipnet_sparsity 'y' \
-               --mask_prune_overspecific 'n' \
+               --mask_prune_overspecific 'y|0|1.1' \
                --geometric_mean_overspecificity_score 'n' \
-               --minimize_contrasting_set 'y' \
+               --minimize_contrasting_set 'y|1|0.1' \
                --leave_out_classes "" \
                --cl_weight 2.0 \
                --OOD_ent 'n' \
