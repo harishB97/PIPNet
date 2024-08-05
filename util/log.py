@@ -16,11 +16,11 @@ class Log:
 
         # Ensure the directories exist
         if not os.path.isdir(self.log_dir):
-            os.mkdir(self.log_dir)
+            os.makedirs(self.log_dir, exist_ok=True)
         if not os.path.isdir(self.metadata_dir):
-            os.mkdir(self.metadata_dir)
+            os.makedirs(self.metadata_dir, exist_ok=True)
         if not os.path.isdir(self.checkpoint_dir):
-            os.mkdir(self.checkpoint_dir)
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
         
 
     @property

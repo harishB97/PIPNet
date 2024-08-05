@@ -36,14 +36,15 @@ import os
 import time
 import wandb
 from collections import Counter
+from tqdm import tqdm
 
 # # Set CUDA_LAUNCH_BLOCKING=1
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-def setup(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+# def setup(rank, world_size):
+#     os.environ['MASTER_ADDR'] = 'localhost'
+#     os.environ['MASTER_PORT'] = '12355'
+#     dist.init_process_group("nccl", rank=rank, world_size=world_size)
 
 def setup_distributed(rank, world_size):
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
@@ -218,7 +219,7 @@ def run_pipnet(args=None):
     # # Log which device was actually used
     # print("Device used: ", device, "with id", device_ids, flush=True)
 
-    device = rank
+    device = f'cuda:{rank}'
     
     # Obtain the dataset and dataloaders
     trainloader, trainloader_pretraining, trainloader_normal, trainloader_normal_augment, projectloader, testloader, test_projectloader, classes = get_dataloaders(args, device, OOD=False)
@@ -333,6 +334,7 @@ def run_pipnet(args=None):
     optimizer_net, optimizer_classifier, params_to_freeze, params_to_train, params_backbone = get_optimizer_nn(net, args)   
 
     # Initialize or load model
+    restart_epoch = 1
     with torch.no_grad():
         if args.state_dict_dir_net != '':
             raise Exception('Do not use this, use state_dict_dir_backbone for loading pretrained ._net')
@@ -374,25 +376,36 @@ def run_pipnet(args=None):
                 filtered_checkpoint_dict.update({key:val for key, val in checkpoint['model_state_dict'].items() if key.startswith('module._target_projector')})
             net.load_state_dict(filtered_checkpoint_dict,strict=False) 
             print(f"Backbone and add-on loaded from {args.state_dict_dir_backbone}", flush=True)
-
-            # NOTE: This makes sense only for hypersphere style contrastive learning
-            # # initialize add on
-            # # net.module._add_on.apply(init_weights_xavier)
-            # for attr in dir(net.module):
-            #     if attr.endswith('_add_on'):
-            #         getattr(net.module, attr).apply(init_weights_xavier)
-
-            # # initialize classification
-            # for attr in dir(net.module):
-            #     if attr.endswith('_classification'):
-            #         torch.nn.init.normal_(getattr(net.module, attr).weight, mean=1.0,std=0.1) 
-            #         if args.bias:
-            #             torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
-            #         print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
             
             # initialize multiplier
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
+
+        elif args.state_dict_dir_fullmodel != '':
+            checkpoint = torch.load(args.state_dict_dir_fullmodel,map_location=str(device))
+            net.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            try:
+                optimizer_net.load_state_dict(checkpoint['optimizer_net_state_dict'])
+            except:
+                print('-'*25, 'Unable to load optimizer_net_state_dict')
+                pass
+            
+            try:
+                optimizer_classifier.load_state_dict(checkpoint['optimizer_classifier_state_dict'])
+            except:
+                print('-'*25, 'Unable to load optimizer_classifier_state_dict')
+                pass
+
+            print("/*"*20, f"Full model loaded from {args.state_dict_dir_fullmodel}", flush=True)
+
+            # initialize multiplier
+            torch.nn.init.constant_(net.module._multiplier, val=2.)
+            net.module._multiplier.requires_grad = False
+            
+            # Finding epoch to start from, from the filename
+            import ntpath
+            filename = ntpath.basename(args.state_dict_dir_fullmodel).split('.')[0]
+            restart_epoch = int(filename.split('_')[-1]) + 1
 
         else:
             # initialize add on
@@ -452,75 +465,59 @@ def run_pipnet(args=None):
     
     lrs_pretrain_net = []
     # ------------------------- PRETRAINING PROTOTYPES PHASE -------------------------
-    max_pretraining_steps = len(trainloader_pretraining) * args.epochs_pretrain
-    step_info_pretraining = {'current_step': 0, 'max_training_steps': max_pretraining_steps}
-    for epoch in range(1, args.epochs_pretrain+1):
-        for param in params_to_train:
-            param.requires_grad = True
-        for attr in dir(net.module):
-            if attr.endswith('_add_on'):
-                for param in getattr(net.module, attr).parameters():
-                    param.requires_grad = True
-        for attr in dir(net.module):
-            if attr.endswith('_classification'):
-                for param in getattr(net.module, attr).parameters():
-                    param.requires_grad = False
-        for param in params_to_freeze:
-            param.requires_grad = True # can be set to False when you want to freeze more layers
-        for param in params_backbone:
-            param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
+    if args.state_dict_dir_fullmodel == '': # this means the model has alread crossed the pretraining
+        max_pretraining_steps = len(trainloader_pretraining) * args.epochs_pretrain
+        step_info_pretraining = {'current_step': 0, 'max_training_steps': max_pretraining_steps}
+        for epoch in range(1, args.epochs_pretrain+1):
+            for param in params_to_train:
+                param.requires_grad = True
+            for attr in dir(net.module):
+                if attr.endswith('_add_on'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = True
+            for attr in dir(net.module):
+                if attr.endswith('_classification'):
+                    for param in getattr(net.module, attr).parameters():
+                        param.requires_grad = False
+            for param in params_to_freeze:
+                param.requires_grad = True # can be set to False when you want to freeze more layers
+            for param in params_backbone:
+                param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
+            
+            print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
+
+            # Pretrain prototypes
+            if args.byol.split('|')[0]== 'y':
+                train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
+                                        scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
+                                        pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
+                                        tanh_desc= ('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
+                                        minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
+                                        byol=True, byol_tau_base=byol_tau_base, byol_tau_max=byol_tau_max, step_info=step_info_pretraining, \
+                                        wandb_run=wandb_run, log=log, args=args)
+            else:
+                train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
+                                                    scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
+                                                    pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
+                                                    tanh_desc=('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
+                                                    minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y',\
+                                                    wandb_run=wandb_run, log=log, args=args)
+            # wandb_run.log(log_dict, step=epoch)
+            # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
+            lrs_pretrain_net+=train_info['lrs_net']
+            plt.clf()
+            plt.plot(lrs_pretrain_net)
+            plt.savefig(os.path.join(args.log_dir,'lr_pretrain_net.png'))
+            log.log_values('log_epoch_overview', epoch, "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", train_info['loss'])
         
-        # # IMPORTANT: Remove this later added for freezing backbone entirely during training
-        # print('IMPORTANT: Fully frozen backbone')
-        # for attr in dir(net.module):
-        #     if attr.endswith('_add_on'):
-        #         for param in getattr(net.module, attr).parameters():
-        #             param.requires_grad = True
-        # for attr in dir(net.module):
-        #     if attr.endswith('_classification'):
-        #         for param in getattr(net.module, attr).parameters():
-        #             param.requires_grad = False
-        # for param in params_to_train:
-        #     param.requires_grad = False
-        # for param in params_to_freeze:
-        #     param.requires_grad = False # can be set to False when you want to freeze more layers
-        # for param in params_backbone:
-        #     param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
-
-        print("\nPretrain Epoch", epoch, "with batch size", trainloader_pretraining.batch_size, flush=True)
-
-        # Pretrain prototypes
-        if args.byol.split('|')[0]== 'y':
-            train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
-                                    scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
-                                    pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                    tanh_desc= ('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
-                                    minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
-                                    byol=True, byol_tau_base=byol_tau_base, byol_tau_max=byol_tau_max, step_info=step_info_pretraining, \
-                                    wandb_run=wandb_run, log=log, args=args)
-        else:
-            train_info, log_dict = train_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, \
-                                                scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, \
-                                                pretrain=True, finetune=False, kernel_orth=args.kernel_orth == 'y', \
-                                                tanh_desc=('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
-                                                minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y',\
-                                                 wandb_run=wandb_run, log=log, args=args)
-        # wandb_run.log(log_dict, step=epoch)
-        # test_info = test_pipnet(net, trainloader_pretraining, optimizer_net, optimizer_classifier, scheduler_net, None, criterion, epoch, args.epochs_pretrain, device, pretrain=True, finetune=False)
-        lrs_pretrain_net+=train_info['lrs_net']
-        plt.clf()
-        plt.plot(lrs_pretrain_net)
-        plt.savefig(os.path.join(args.log_dir,'lr_pretrain_net.png'))
-        log.log_values('log_epoch_overview', epoch, "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", "n.a.", train_info['loss'])
-    
-    if args.state_dict_dir_net == '':
-        net.eval()
-        torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_pretrained'))
-        net.train()
-    # with torch.no_grad():
-    #     if 'convnext' in args.net and args.epochs_pretrain > 0:
-    #         for node in root.nodes_with_children():
-    #             topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
+        if args.state_dict_dir_net == '':
+            net.eval()
+            torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_pretrained'))
+            net.train()
+        # with torch.no_grad():
+        #     if 'convnext' in args.net and args.epochs_pretrain > 0:
+        #         for node in root.nodes_with_children():
+        #             topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_pretrained_prototypes_topk/{node.name}', args, node=node)
     
     # ------------------------- SECOND TRAINING PHASE -------------------------
     # re-initialize optimizers and schedulers for second training phase
@@ -541,9 +538,37 @@ def run_pipnet(args=None):
     frozen = True
     lrs_net = []
     lrs_classifier = []
+
+    def just_update_lr_schedulers(scheduler_classifier, scheduler_net, train_loader, epoch, pretrain, finetune):
+        lrs_net = []
+        lrs_class = []
+        train_info = {}
+
+        iters = len(train_loader)
+        train_iter = tqdm(enumerate(train_loader),
+                    total=len(train_loader),
+                    desc=f'Lr update {epoch}',
+                    mininterval=2.,
+                    ncols=0)
+        for i, (xs1, xs2, ys) in train_iter:
+            if not pretrain:
+                # optimizer_classifier.step()   
+                scheduler_classifier.step(epoch - 1 + (i/iters))
+                lrs_class.append(scheduler_classifier.get_last_lr()[0])
+            if not finetune:
+                # optimizer_net.step()
+                scheduler_net.step() 
+                lrs_net.append(scheduler_net.get_last_lr()[0])
+            else:
+                lrs_net.append(0.)
+
+        train_info['lrs_net'] = lrs_net
+        train_info['lrs_class'] = lrs_class
+        return train_info
     
     max_training_steps = len(trainloader) * args.epochs
     step_info_training = {'current_step': 0, 'max_training_steps': max_training_steps}
+
     for epoch in range(1, args.epochs + 1):                      
         epochs_to_finetune = args.epochs_finetune #3 #during finetuning, only train classification layer and freeze rest. usually done for a few epochs (at least 1, more depends on size of dataset)
         if epoch <= args.epochs_finetune_classifier:
@@ -562,25 +587,6 @@ def run_pipnet(args=None):
             for param in params_backbone:
                 param.requires_grad = False
             finetune = True
-        # else:
-        #     # IMPORTANT: Remove this later, added for freezing backbone entirely during training
-        #     finetune = False
-        #     print('IMPORTANT: Fully frozen backbone')
-        #     for attr in dir(net.module):
-        #         if attr.endswith('_add_on'):
-        #             for param in getattr(net.module, attr).parameters():
-        #                 param.requires_grad = True
-        #     for attr in dir(net.module):
-        #         if attr.endswith('_classification'):
-        #             for param in getattr(net.module, attr).parameters():
-        #                 param.requires_grad = True
-        #     for param in params_to_train:
-        #         param.requires_grad = False
-        #     for param in params_to_freeze:
-        #         param.requires_grad = False # can be set to False when you want to freeze more layers
-        #     for param in params_backbone:
-        #         param.requires_grad = False #can be set to True when you want to train whole backbone (e.g. if dataset is very different from ImageNet)
-
         elif epoch <= epochs_to_finetune: # and (args.epochs_pretrain > 0 or args.state_dict_dir_net != ''):
             # for param in net.module._add_on.parameters():
             #     param.requires_grad = False
@@ -651,19 +657,29 @@ def run_pipnet(args=None):
                     for param in params_backbone:
                         param.requires_grad = False
         
+        # if restarting from a model, just skip initial epochs
+        if epoch < restart_epoch:
+            print('Restart epoch is', restart_epoch)
+            train_info = just_update_lr_schedulers(scheduler_classifier, scheduler_net, trainloader, epoch, False, finetune)
+            lrs_net+=train_info['lrs_net']
+            lrs_classifier+=train_info['lrs_class']
+            continue
+
+        dist.barrier()
+            
         print("\n Epoch", epoch, "frozen:", frozen, flush=True)            
         if (epoch==args.epochs or epoch%30==0) and args.epochs>1:
-            # SET SMALL WEIGHTS TO ZERO
-            with torch.no_grad():
-                torch.set_printoptions(profile="full")
-                for attr in dir(net.module):
-                    if attr.endswith('_classification'):
-                        getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
-                        print(f"{attr} weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
-                              (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
-                        if args.bias:
-                            print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
-                torch.set_printoptions(profile="default")
+            # # SET SMALL WEIGHTS TO ZERO
+            # with torch.no_grad():
+            #     torch.set_printoptions(profile="full")
+            #     for attr in dir(net.module):
+            #         if attr.endswith('_classification'):
+            #             getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
+            #             print(f"{attr} weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
+            #                   (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
+            #             if args.bias:
+            #                 print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
+            #     torch.set_printoptions(profile="default")
 
             for node in root.nodes_with_children():
                 classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
@@ -680,7 +696,7 @@ def run_pipnet(args=None):
                                             tanh_desc=('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                             minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
                                             byol=True, byol_tau_base=byol_tau_base, byol_tau_max=byol_tau_max, step_info=step_info_training, \
-                                                wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
+                                                wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args, dist_training=True)
         else:
             train_info, log_dict = train_pipnet(net, trainloader, optimizer_net, optimizer_classifier, \
                                     scheduler_net, scheduler_classifier, criterion, epoch, \
@@ -688,7 +704,7 @@ def run_pipnet(args=None):
                                         train_loader_OOD=trainloader_OOD, kernel_orth=args.kernel_orth == 'y',\
                                             tanh_desc=('y' in args.tanh_desc), align=args.align == 'y', uni=args.uni == 'y', align_pf=args.align_pf == 'y', tanh=args.tanh == 'y',\
                                             minmaximize=args.minmaximize == 'y', cluster_desc=args.cluster_desc == 'y', sep_desc=args.sep_desc == 'y', subspace_sep=args.subspace_sep == 'y', \
-                                            wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args)
+                                            wandb_run=wandb_run, pretrain_epochs=args.epochs_pretrain, log=log, args=args, dist_training=True)
         # wandb_run.log(log_dict, step=epoch + args.epochs_pretrain)
         
         if (epoch==args.epochs or epoch%5==0) and args.epochs>1 and (int(os.environ["RANK"]) == 0):
@@ -730,7 +746,7 @@ def run_pipnet(args=None):
             net.eval()
             torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained'))
 
-            if epoch%30 == 0:
+            if epoch%5 == 0:
                 # visualize prototypes
                 # for node in root.nodes_with_children():
                 #     topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk_ep={epoch}/{node.name}', args, node=node)
@@ -748,110 +764,6 @@ def run_pipnet(args=None):
                 
     net.eval()
     torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained_last'))
-
-    # for node in root.nodes_with_children():
-    #     topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk/{node.name}', args, node=node)
-    #     # set weights of prototypes that are never really found in projection set to 0
-    #     set_to_zero = []
-    #     classification_layer = getattr(net.module, '_'+node.name+'_classification')
-    #     if topks:
-    #         for prot in topks.keys():
-    #             found = False
-    #             for (i_id, score) in topks[prot]:
-    #                 if score > 0.1:
-    #                     found = True
-    #             if not found:
-    #                 torch.nn.init.zeros_(classification_layer.weight[:,prot])
-    #                 set_to_zero.append(prot)
-    #         print(f"Weights of prototypes of node {node.name}", set_to_zero, "are set to zero because it is never detected with similarity>0.1 in the training set", flush=True)
-
-    #     # Not doing this for now requires modification in test.py
-    #     # eval_info = eval_pipnet(net, testloader, "notused"+str(args.epochs), device, log)
-    #     # log.log_values('log_epoch_overview', "notused"+str(args.epochs), eval_info['top1_accuracy'], eval_info['top5_accuracy'], eval_info['almost_sim_nonzeros'], eval_info['local_size_all_classes'], eval_info['almost_nonzeros'], eval_info['num non-zero prototypes'], "n.a.", "n.a.")
-
-    #     print(f"classifier weights {node.name}: ", classification_layer.weight, flush=True)
-    #     print(f"Classifier weights nonzero {node.name}: ", classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)], (classification_layer.weight[classification_layer.weight.nonzero(as_tuple=True)]).shape, flush=True)
-    #     print(f"Classifier bias {node.name}: ", classification_layer.bias, flush=True)
-
-    # Print weights and relevant prototypes per class
-    # for node in root.nodes_with_children():
-    #     classification_layer = getattr(net.module, '_'+node.name+'_classification')
-    #     coarse_label_to_name = {label:name for name, label in node.children_to_labels.items()}
-    #     print(f"Node: {node.name}, Class -> Prototypes")
-    #     for c in range(classification_layer.weight.shape[0]):
-    #         relevant_ps = []
-    #         proto_weights = classification_layer.weight[c,:]
-    #         for p in range(classification_layer.weight.shape[1]):
-    #             if proto_weights[p]> 1e-3:
-    #                 relevant_ps.append((p, proto_weights[p].item()))
-    #         if args.validation_size == 0.:
-    #             print("Class", c, "(", coarse_label_to_name[c], "):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
-    #             # print("Class", c, "(", list(testloader.dataset.class_to_idx.keys())[list(testloader.dataset.class_to_idx.values()).index(c)],"):","has", len(relevant_ps),"relevant prototypes: ", relevant_ps, flush=True)
-
-    #     print(f"Node: {node.name}, Prototypes -> Class")
-    #     for p in range(classification_layer.weight.shape[1]):
-    #         relevant_classes = []
-    #         proto_weights = classification_layer.weight[:,p]
-    #         for c in range(classification_layer.weight.shape[0]):
-    #             if proto_weights[c]> 1e-3:
-    #                 relevant_classes.append((c, proto_weights[c].item()))
-    #         if relevant_classes:
-    #             print("Prototype", p, " present in", len(relevant_classes), "classes: ", [coarse_label_to_name[rc[0]] for rc in relevant_classes], flush=True)
-
-    # Evaluate prototype purity        
-    # if args.dataset == 'CUB-200-2011':
-    #     projectset_img0_path = projectloader.dataset.samples[0][0]
-    #     project_path = os.path.split(os.path.split(projectset_img0_path)[0])[0].split("dataset")[0]
-    #     parts_loc_path = os.path.join(project_path, "parts/part_locs.txt")
-    #     parts_name_path = os.path.join(project_path, "parts/parts.txt")
-    #     imgs_id_path = os.path.join(project_path, "images.txt")
-    #     cubthreshold = 0.5 
-
-    #     net.eval()
-    #     print("\n\nEvaluating cub prototypes for training set", flush=True)        
-    #     csvfile_topk = get_topk_cub(net, projectloader, 10, 'train_'+str(epoch), device, args)
-    #     eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'train_topk_'+str(epoch), args, log)
-        
-    #     csvfile_all = get_proto_patches_cub(net, projectloader, 'train_all_'+str(epoch), device, args, threshold=cubthreshold)
-    #     eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'train_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
-        
-    #     print("\n\nEvaluating cub prototypes for test set", flush=True)
-    #     csvfile_topk = get_topk_cub(net, test_projectloader, 10, 'test_'+str(epoch), device, args)
-    #     eval_prototypes_cub_parts_csv(csvfile_topk, parts_loc_path, parts_name_path, imgs_id_path, 'test_topk_'+str(epoch), args, log)
-    #     cubthreshold = 0.5
-    #     csvfile_all = get_proto_patches_cub(net, test_projectloader, 'test_'+str(epoch), device, args, threshold=cubthreshold)
-    #     eval_prototypes_cub_parts_csv(csvfile_all, parts_loc_path, parts_name_path, imgs_id_path, 'test_all_thres'+str(cubthreshold)+'_'+str(epoch), args, log)
-        
-    # visualize predictions - not doing this for now
-    # visualize(net, projectloader, len(classes), device, 'visualised_prototypes', args)
-    # testset_img0_path = test_projectloader.dataset.samples[0][0]
-    # test_path = os.path.split(os.path.split(testset_img0_path)[0])[0]
-    # vis_pred(net, test_path, classes, device, args) 
-    # if args.extra_test_image_folder != '':
-    #     if os.path.exists(args.extra_test_image_folder):   
-    #         vis_pred_experiments(net, args.extra_test_image_folder, classes, device, args)
-
-
-    # EVALUATE OOD DETECTION - not doing this for now
-    # ood_datasets = ["CARS", "CUB-200-2011", "pets"]
-    # for percent in [95.]:
-    #     print("\nOOD Evaluation for epoch", epoch,"with percent of", percent, flush=True)
-    #     _, _, _, class_thresholds = get_thresholds(net, testloader, epoch, device, percent, log)
-    #     print("Thresholds:", class_thresholds, flush=True)
-    #     # Evaluate with in-distribution data
-    #     id_fraction = eval_ood(net, testloader, epoch, device, class_thresholds)
-    #     print("ID class threshold ID fraction (TPR) with percent",percent,":", id_fraction, flush=True)
-        
-    #     # Evaluate with out-of-distribution data
-    #     for ood_dataset in ood_datasets:
-    #         if ood_dataset != args.dataset:
-    #             print("\n OOD dataset: ", ood_dataset,flush=True)
-    #             ood_args = deepcopy(args)
-    #             ood_args.dataset = ood_dataset
-    #             _, _, _, _, _,ood_testloader, _, _ = get_dataloaders(ood_args, device)
-                
-    #             id_fraction = eval_ood(net, ood_testloader, epoch, device, class_thresholds)
-    #             print(args.dataset, "- OOD", ood_dataset, "class threshold ID fraction (FPR) with percent",percent,":", id_fraction, flush=True)                
 
     print("Done!", flush=True)
 

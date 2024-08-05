@@ -5,6 +5,8 @@ import torch.optim
 import torch.utils.data
 import math
 import numpy as np
+import torch.nn as nn
+import torch.distributed as dist
 
 from collections import defaultdict
 from torchmetrics.functional import f1_score, recall, precision
@@ -49,11 +51,30 @@ def findCorrespondingToMax(base, target):
     pooled_target = corresponding_values_in_target
     return pooled_target
 
+def check_and_update_weights_dist(model, threshold=1e-3, add_value=0.1):
+    rank = dist.get_rank()
+    if rank == 0:
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                if name.endswith('_classification'):
+                    param.data[param.data <= threshold] += add_value
+    # Ensure all processes wait until rank 0 finishes updating weights
+    dist.barrier()
+    # Broadcast the updated parameters from rank 0 to all processes
+    for param in model.parameters():
+        dist.broadcast(param.data, src=0)
+
+def check_and_update_weights(model, threshold=1e-3, add_value=0.1):
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name.endswith('_classification'):
+                param.data[param.data <= threshold] += add_value
+
 def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, scheduler_net, scheduler_classifier, criterion, \
                  epoch, nr_epochs, device, pretrain=False, finetune=False, progress_prefix: str = 'Train Epoch', wandb_logging=True, \
                  train_loader_OOD=None, kernel_orth=False, tanh_desc=False, align=True, uni=True, align_pf=False, tanh=False, \
                  minmaximize=False, cluster_desc=False, sep_desc=False, subspace_sep=False, byol=False, byol_tau_base=0.9995, byol_tau_max=1., step_info=None, wandb_run=None, \
-                 pretrain_epochs=0, log:Log=None, args=None):
+                 pretrain_epochs=0, log:Log=None, args=None, dist_training=False):
 
     root = net.module.root
     dataset = train_loader.dataset
@@ -242,6 +263,8 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
         # Compute the gradient
         loss.backward()
 
+
+
         
         # del features
         # del proto_features
@@ -311,6 +334,11 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             total_loss+=loss.item()
 
         # del loss
+        # To avoid all values becoming zero
+        if dist_training:
+            check_and_update_weights_dist(net.module, threshold=1e-3, add_value=0.01)
+        else:
+            check_and_update_weights(net.module, threshold=1e-3, add_value=0.01)
 
         if byol:
             byol_tau = byol_tau_max - (((byol_tau_max - byol_tau_base) * (torch.cos(torch.tensor((torch.pi * step_info['current_step'])/step_info['max_training_steps'])) + 1)) / 2)
@@ -321,16 +349,16 @@ def train_pipnet(net, train_loader, optimizer_net, optimizer_classifier, schedul
             # net.module._target_feature_net = (byol_tau * net.module._target_feature_net) + ((1 - byol_tau) * net.module._net)
             # net.module._target_projector = (byol_tau * net.module._target_projector) + ((1 - byol_tau) * net.module._projector)
 
-        if not pretrain:
-            with torch.no_grad():
-                for attr in dir(net.module):
-                    if attr.endswith('_classification'):
-                        classification_layer = getattr(net.module, attr)
-                        classification_layer.weight.copy_(torch.clamp(classification_layer.weight.data - 1e-3, min=0.)) #set weights in classification layer < 1e-3 to zero
-                        if classification_layer.bias is not None:
-                            classification_layer.bias.copy_(torch.clamp(classification_layer.bias.data, min=0.))  
-                # YTIR - keeping this because this was done in the original code, but why this is required this parameter is supposed to be constant & non-trainable
-                net.module._multiplier.copy_(torch.clamp(net.module._multiplier.data, min=1.0))
+        # if not pretrain:
+        #     with torch.no_grad():
+        #         for attr in dir(net.module):
+        #             if attr.endswith('_classification'):
+        #                 classification_layer = getattr(net.module, attr)
+        #                 classification_layer.weight.copy_(torch.clamp(classification_layer.weight.data - 1e-3, min=0.)) #set weights in classification layer < 1e-3 to zero
+        #                 if classification_layer.bias is not None:
+        #                     classification_layer.bias.copy_(torch.clamp(classification_layer.bias.data, min=0.))  
+        #         # YTIR - keeping this because this was done in the original code, but why this is required this parameter is supposed to be constant & non-trainable
+        #         net.module._multiplier.copy_(torch.clamp(net.module._multiplier.data, min=1.0))
         
         _, preds_joint = net.module.get_joint_distribution(out)
         preds_joint = preds_joint[ys != OOD_LABEL]
@@ -877,14 +905,6 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
         uni_loss = (uniform_loss(normalized_flattened_features1) \
                     + uniform_loss(normalized_flattened_features2)) / 2.
 
-        # meanpooled_features1 = F.avg_pool2d(features1, kernel_size=2, stride=1)
-        # meanpooled_features2 = F.avg_pool2d(features2, kernel_size=2, stride=1)
-        # flattened_meanpooled_features1 = flatten_tensor(meanpooled_features1)
-        # flattened_meanpooled_features2 = flatten_tensor(meanpooled_features2)
-        # normalized_flattened_meanpooled_features1 = F.normalize(flattened_meanpooled_features1, p=2, dim=1)
-        # normalized_flattened_meanpooled_features2 = F.normalize(flattened_meanpooled_features2, p=2, dim=1)
-        # uni_loss = (uniform_loss(normalized_flattened_meanpooled_features1) \
-        #             + uniform_loss(normalized_flattened_meanpooled_features2)) / 2.
 
         # loss += align_pf_weight * a_loss
         al_and_uni += align_weight * a_loss
@@ -905,33 +925,10 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
 
     else:
         a_loss = torch.tensor(-5) # placeholder value
-        uni_loss = torch.tensor(-5) # placeholder value
-    # with torch.no_grad():
-    #     flattened_features1 = flatten_tensor(features1)
-    #     flattened_features2 = flatten_tensor(features2)
-    #     normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
-    #     normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
-    #     if 'AL' not in losses_used:
-    #         a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
-    #     if 'UNI' not in losses_used:
-    #         # uni_loss = (uniform_loss(normalized_flattened_features1) \
-    #         #             + uniform_loss(normalized_flattened_features2)) / 2.
-    #         uni_loss = uniform_loss(normalized_flattened_features1)                        
+        uni_loss = torch.tensor(-5) # placeholder value                    
 
     if args.sg_before_protos == 'y':
         features = features.clone().detach()
-
-    # if byol:
-    #     # Calculate alignment between latent spaces, this is only for measurement
-    #     # a_loss here will NOT be used for backpropagation
-    #     # a_loss will be added to al_and_uni and then al_and_uni will be added to loss, this is the way it works when backpropagating on a_loss
-    #     flattened_features1 = flatten_tensor(features1)
-    #     flattened_features2 = flatten_tensor(features2)
-    #     normalized_flattened_features1 = F.normalize(flattened_features1, p=2, dim=1)
-    #     normalized_flattened_features2 = F.normalize(flattened_features2, p=2, dim=1)
-    #     a_loss = align_loss_unit_space(normalized_flattened_features1, normalized_flattened_features2)
-    #     uni_loss = (uniform_loss(normalized_flattened_features1) \
-    #                 + uniform_loss(normalized_flattened_features2)) / 2.
 
     for node in root.nodes_with_children():
         children_idx = torch.tensor([name in node.leaf_descendents for name in batch_names])
@@ -1035,18 +1032,11 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     child_class_idx = node.children_to_labels[child_node.name]
                     relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-5).squeeze(-1)
 
-                    # 
-                    # [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
-                    # for node in root.nodes_with_children():
-                    #     for child_name, child_class_idx in node.children_to_labels.items():
-                    #         if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0):
-                    #             print(child_name)
-
                     if len(relevant_proto_idx) == 0:
                         no_proto_node_names = [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
                         # likely to happen when leave_out_classes is used
-                        breakpoint()
-                        pdb.set_trace()
+                        # breakpoint()
+                        print('Node', node.name, 'child_node', child_node.name)
                         assert child_node.is_leaf()
                         assert args.leave_out_classes.strip() != '' 
                         continue
@@ -1066,214 +1056,9 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     loss += minimize_contrasting_set_weight * max_of_contrasting_set.mean() / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
                     if not 'MIN_CONT' in losses_used:
                         losses_used.append('MIN_CONT')
-                    # if torch.isnan(minimize_contrasting_set_weight * max_of_contrasting_set.mean()):
-                    #     breakpoint()
-                        # torch.nonzero(node_y != 0).squeeze(-1)
             else:
                 raise Exception('Do not use ant_conc_log_ip loss when protopool is true')
 
-        if ('y' in args.conc_log_ip):
-            conc_log_ip_weight = 0.01
-            TOPK = int(args.conc_log_ip.split('|')[1]) if (len(args.conc_log_ip.split('|')) > 1) else 1
-            EPS=1e-12
-            num_protos = pooled[node.name].shape[-1]
-            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-
-            # if node.name == 'root':
-            #     breakpoint()
-            if (len(args.conc_log_ip.split('|')) > 2) and (epoch < int(args.conc_log_ip.split('|')[2])):
-                pass
-            else:
-                if args.protopool == 'n':
-                    # mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
-                    node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
-                    conc_log_ip_loss[node.name] = 0.
-                    for child_node in node.children:
-                        child_class_idx = node.children_to_labels[child_node.name]
-                        relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
-                        # torch.nonzero(classification_weights[1, :] > 1e-3).squeeze(-1)
-                        # mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
-
-                        relevant_data_idx = torch.nonzero(node_y == child_class_idx).squeeze(-1)
-
-                        if len(relevant_data_idx) == 0:
-                            continue # no data points with child_class_idx present so skip this child_node
-
-                        _, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=TOPK)
-                        # proto_idx = relevant_proto_idx.unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                        proto_idx = torch.arange(0, len(relevant_proto_idx)).unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                        topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
-                        proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
-                        topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
-                        
-                        if args.conc_log_ip_peak_normalize == 'y':
-                            max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
-                            max_vals = max_vals.reshape(-1, 1, 1)
-                            topk_activation_maps = topk_activation_maps / max_vals
-                        
-                        conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
-                        conc_log_ip_loss_for_child = -torch.log(conc_log_ip_temp + EPS).mean()
-                        conc_log_ip_loss[node.name] += conc_log_ip_loss_for_child
-
-                        # if torch.isnan(conc_log_ip_loss_for_child):
-                        #     breakpoint()
-
-                        loss += conc_log_ip_weight * conc_log_ip_loss_for_child / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                        if not 'CONC_LOG_IP' in losses_used:
-                            losses_used.append('CONC_LOG_IP')
-
-                else:
-                    # classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                    # node_y.unsqueeze(-1).repeat(1, num_protos)
-                    # torch.nonzero(classification_weights[0, :] > 1e-3).squeeze(-1)
-                    _, topk_idx = torch.topk(pooled[node.name][children_idx], dim=0, k=TOPK) # [topk, num_protos]
-                    proto_idx = torch.arange(0, num_protos).unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                    topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
-                    proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
-                    topk_activation_maps = proto_features[node.name][children_idx][topk_idx, proto_idx]
-                    conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
-                    conc_log_ip_loss[node.name] = -torch.log(conc_log_ip_temp + EPS).mean()
-
-                    loss += conc_log_ip_weight * conc_log_ip_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                    if not 'CONC_LOG_IP' in losses_used:
-                        losses_used.append('CONC_LOG_IP')
-
-        if ('y' in args.ant_conc_log_ip):
-            ant_conc_log_ip_weight = 0.01
-            TOPK = int(args.ant_conc_log_ip.split('|')[1]) if (len(args.ant_conc_log_ip.split('|')) > 1) else 1
-            EPS=1e-12
-            num_protos = pooled[node.name].shape[-1]
-            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-            if args.protopool == 'n':
-                node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
-                ant_conc_log_ip_loss[node.name] = 0.
-                for child_node in node.children:
-                    child_class_idx = node.children_to_labels[child_node.name]
-                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
-                    
-                    # look at data points that do not belong to child_node
-                    relevant_data_idx = torch.nonzero(node_y != child_class_idx).squeeze(-1)
-
-                    if len(relevant_data_idx) == 0:
-                        continue # no data points that is not equal to child_class_idx present so skip this child_node
-
-                    _, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=TOPK)
-                    # proto_idx = relevant_proto_idx.unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                    proto_idx = torch.arange(0, len(relevant_proto_idx)).unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                    topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
-                    proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
-                    topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
-                    ant_conc_log_ip_temp = torch.einsum("nhw,nhw->n", [topk_activation_maps, topk_activation_maps.clone().detach()])
-                    ant_conc_log_ip_loss_for_child = torch.log(ant_conc_log_ip_temp + EPS).mean() # IMPORTANT: this should be POSITIVE
-                    ant_conc_log_ip_loss[node.name] += ant_conc_log_ip_loss_for_child
-
-                    # if torch.isnan(conc_log_ip_loss_for_child):
-                    #     breakpoint()
-
-                    loss += ant_conc_log_ip_weight * ant_conc_log_ip_loss_for_child / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                    if not 'ANT_CONC_LOG_IP' in losses_used:
-                        losses_used.append('ANT_CONC_LOG_IP')
-            else:
-                raise Exception('Do not use ant_conc_log_ip loss when protopool is true')
-
-        if ('y' in args.act_l1):
-            act_l1_weight = 0.01
-            TOPK = int(args.act_l1.split('|')[1]) if (len(args.act_l1.split('|')) > 1) else 1
-            EPS=1e-12
-            num_protos = pooled[node.name].shape[-1]
-            classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-
-            if args.protopool == 'n':
-                # mask = torch.zeros_like(pooled[node.name][children_idx], dtype=torch.bool) # [batch_size, num_protos]
-                # node_y_expanded = node_y.unsqueeze(-1).repeat(1, num_protos) # [batch_size] to [batch_size, num_protos]
-                act_l1_loss[node.name] = 0.
-                for child_node in node.children:
-                    child_class_idx = node.children_to_labels[child_node.name]
-                    relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
-                    # torch.nonzero(classification_weights[1, :] > 1e-3).squeeze(-1)
-                    # mask[:, relevant_proto_idx] = node_y_expanded[:, relevant_proto_idx] == child_class_idx
-
-                    relevant_data_idx = torch.nonzero(node_y == child_class_idx).squeeze(-1)
-
-                    if len(relevant_data_idx) == 0:
-                        continue # no data points with child_class_idx present so skip this child_node
-
-                    _, topk_idx = torch.topk(pooled[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx], dim=0, k=min(TOPK, len(relevant_data_idx)))
-                    # proto_idx = relevant_proto_idx.unsqueeze(0).repeat(TOPK, 1) # [topk, num_protos]
-                    proto_idx = torch.arange(0, len(relevant_proto_idx)).unsqueeze(0).repeat(min(TOPK, len(relevant_data_idx)), 1) # [topk, num_protos]
-                    topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
-                    proto_idx = proto_idx.reshape(-1) # [topk*num_protos]   
-                    topk_activation_maps = proto_features[node.name][children_idx][relevant_data_idx, :][:, relevant_proto_idx][topk_idx, proto_idx]
-                    # if topk_activation_maps.size(0) == 0:
-                    #     breakpoint()
-                    max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
-                    max_vals = max_vals.reshape(-1, 1, 1)
-                    mask = topk_activation_maps != max_vals
-                    masked_tensor = topk_activation_maps * mask
-                    act_l1_loss_for_child = masked_tensor.abs().mean()
-                    act_l1_loss[node.name] += act_l1_loss_for_child
-
-                    loss += act_l1_weight * act_l1_loss_for_child / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                    if not 'ACT_L1' in losses_used:
-                        losses_used.append('ACT_L1')
-
-            else:
-                # classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                # node_y.unsqueeze(-1).repeat(1, num_protos)
-                # torch.nonzero(classification_weights[0, :] > 1e-3).squeeze(-1)
-                _, topk_idx = torch.topk(pooled[node.name][children_idx], dim=0, k=min(TOPK, pooled[node.name][children_idx].shape[0])) # [topk, num_protos]
-                proto_idx = torch.arange(0, num_protos).unsqueeze(0).repeat(min(TOPK, pooled[node.name][children_idx].shape[0]), 1) # [topk, num_protos]
-                topk_idx = topk_idx.reshape(-1) # [topk*num_protos]
-                proto_idx = proto_idx.reshape(-1) # [topk*num_protos]
-                topk_activation_maps = proto_features[node.name][children_idx][topk_idx, proto_idx]
-                max_vals, _ = torch.max(topk_activation_maps.reshape(topk_activation_maps.size(0), -1), dim=1, keepdim=True)
-                max_vals = max_vals.reshape(-1, 1, 1)
-                mask = topk_activation_maps != max_vals
-                masked_tensor = topk_activation_maps * mask
-                act_l1_loss[node.name] = masked_tensor.abs().mean()
-
-                loss += act_l1_weight * act_l1_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                if not 'ACT_L1' in losses_used:
-                    losses_used.append('ACT_L1')
-
-        if (not pretrain) and (not finetune) and minmaximize:
-            minmaximize_loss[node.name] = 0
-            for child_node in node.children:
-                if child_node.name not in batch_names_coarsest:
-                    continue
-                child_label = node.children_to_labels[child_node.name]
-                list_of_min_wrt_each_proto = []
-                if child_node.is_leaf():
-                    descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
-                    if int(descendant_idx.sum().item()) == 0:
-                        continue
-                    idx_of_protos_relevant_to_child = getattr(net.module, '_'+node.name+'_classification').weight[child_label] > 1e-3
-                    # pooled[node.name].shape => (B, node.num_protos)
-                    # proto_activations_of_descendants.shape => (sum(descendant_idx), num_relevant_protos)
-                    proto_activations_of_descendants = pooled[node.name][descendant_idx][:, idx_of_protos_relevant_to_child]
-                    # min_wrt_each_proto.shape => (num_relevant_protos), since minimum taken over descendant images in the batch
-                    min_wrt_each_proto, _ = torch.min(proto_activations_of_descendants, dim=0)
-                    list_of_min_wrt_each_proto.append(min_wrt_each_proto)
-                else:
-                    for descendant_name in child_node.leaf_descendents:
-                        descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
-                        if int(descendant_idx.sum().item()) == 0:
-                            continue
-                        idx_of_protos_relevant_to_child = getattr(net.module, '_'+node.name+'_classification').weight[child_label] > 1e-3
-                        # pooled[node.name].shape => (B, node.num_protos)
-                        # proto_activations_of_descendants.shape => (sum(descendant_idx), num_relevant_protos)
-                        proto_activations_of_descendants = pooled[node.name][descendant_idx][:, idx_of_protos_relevant_to_child]
-                        # min_wrt_each_proto.shape => (num_relevant_protos), since minimum taken over descendant images in the batch
-                        min_wrt_each_proto, _ = torch.min(proto_activations_of_descendants, dim=0)
-                        list_of_min_wrt_each_proto.append(min_wrt_each_proto)
-                # stack_of_min_wrt_each_proto.shape => (len(child_node.leaf_descendents), num_relevant_protos)
-                    
-                stack_of_min_wrt_each_proto = torch.stack(list_of_min_wrt_each_proto, dim=0)
-                minmaximize_loss[node.name] += -torch.sum(torch.mean(stack_of_min_wrt_each_proto, dim=0))
-
-            mm_loss += mm_weight * minmaximize_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-            if not 'MM' in losses_used:
-                losses_used.append('MM')
 
         if (not finetune) and align_pf:
             # CARL align loss
@@ -1315,8 +1100,9 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                     if len(relevant_proto_idx) == 0:
                         no_proto_node_names = [child_name for node in root.nodes_with_children() for child_name, child_class_idx in node.children_to_labels.items() if (len(torch.nonzero(getattr(net.module, '_'+node.name+'_classification').weight[child_class_idx, :] > 1e-5).squeeze(-1)) == 0)]
                         # likely to happen when leave_out_classes is used
-                        breakpoint()
-                        pdb.set_trace()
+                        # breakpoint()
+                        # pdb.set_trace()
+                        print('Node', node.name, 'child_node', child_node.name)
                         assert args.leave_out_classes.strip() != '' # this is likely to happen when using leave_out_classes
                         continue 
                     descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
@@ -1328,7 +1114,9 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                         descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
                         relevant_proto_idx = torch.nonzero(classification_weights[child_class_idx, :] > 1e-3).squeeze(-1)
                         if len(relevant_proto_idx) == 0:
-                            breakpoint()
+                            print('Node', node.name, 'child_node', child_node.name)
+                            raise Exception('All values become zero' + 'Node ' + node.name + 'child_node ' + child_node.name)
+                            # breakpoint()
                         descendant_pooled1, descendant_pooled2 = pooled[node.name][descendant_idx][:, relevant_proto_idx].chunk(2)
                         descendant_tanh_loss = -(torch.log(torch.tanh(torch.sum(descendant_pooled1,dim=0))+EPS).mean() \
                                                             + torch.log(torch.tanh(torch.sum(descendant_pooled2,dim=0))+EPS).mean()) / 2.
@@ -1343,184 +1131,6 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             cl_and_tanh_desc += tanh_desc_weight * tanh_desc_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'TANH_DESC' in losses_used:
                 losses_used.append('TANH_DESC')
-
-        if (not pretrain) and cluster_desc:
-            TOPK = 1 # float('inf') # 3
-            # cluster loss corresponding to every descendant species
-            cluster_loss_for_each_descendant = []
-            for child_node in node.children:
-                if child_node.is_leaf(): # because leaf nodes do not have any descendants
-                    descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
-
-                    prototypes = getattr(net.module, '_'+node.name+'_add_on') # getattr(net.module, '_'+node.name+'_classification')
-                    cosine_similarity = torch.abs(functional_UnitConv2D(features, prototypes.weight, prototypes.bias))
-                    pooled_cosine_similarity = findCorrespondingToMax(proto_features[node.name], cosine_similarity)
-                    
-                    descendant_pooled_cs_1, descendant_pooled_cs_2 = pooled_cosine_similarity[descendant_idx].chunk(2)
-
-                    child_class_idx = node.children_to_labels[child_node.name]
-                    classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                    relevant_protos_to_child_node = [proto_idx.item() for proto_idx in torch.nonzero(classification_weights[child_class_idx, :] > 1e-3)]
-
-                    for proto_idx in relevant_protos_to_child_node:
-                        num_of_descendants_in_batch = descendant_pooled_cs_1[:, proto_idx].shape[0]
-                        if (num_of_descendants_in_batch == 0): continue
-                        topk_nearest_patches_1, _ = torch.topk(descendant_pooled_cs_1[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                        num_of_descendants_in_batch = descendant_pooled_cs_2[:, proto_idx].shape[0]
-                        if (num_of_descendants_in_batch == 0): continue
-                        topk_nearest_patches_2, _ = torch.topk(descendant_pooled_cs_2[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                        cluster_loss_for_each_descendant.append((torch.mean(topk_nearest_patches_1) + torch.mean(topk_nearest_patches_2)) / 2.)
-
-                else:
-                    for descendant_name in child_node.leaf_descendents:
-                        descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
-                        prototypes = getattr(net.module, '_'+node.name+'_add_on') # getattr(net.module, '_'+node.name+'_classification')
-                        cosine_similarity = torch.abs(functional_UnitConv2D(features, prototypes.weight, prototypes.bias))
-                        pooled_cosine_similarity = findCorrespondingToMax(proto_features[node.name], cosine_similarity)
-                        
-                        descendant_pooled_cs_1, descendant_pooled_cs_2 = pooled_cosine_similarity[descendant_idx].chunk(2)
-
-                        child_class_idx = node.children_to_labels[child_node.name]
-                        classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                        relevant_protos_to_child_node = [proto_idx.item() for proto_idx in torch.nonzero(classification_weights[child_class_idx, :] > 1e-3)]
-
-                        for proto_idx in relevant_protos_to_child_node:
-                            num_of_descendants_in_batch = descendant_pooled_cs_1[:, proto_idx].shape[0]
-                            if (num_of_descendants_in_batch == 0): continue
-                            topk_nearest_patches_1, _ = torch.topk(descendant_pooled_cs_1[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                            num_of_descendants_in_batch = descendant_pooled_cs_2[:, proto_idx].shape[0]
-                            if (num_of_descendants_in_batch == 0): continue
-                            topk_nearest_patches_2, _ = torch.topk(descendant_pooled_cs_2[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                            cluster_loss_for_each_descendant.append(((torch.mean(topk_nearest_patches_1) + torch.mean(topk_nearest_patches_2)) / 2.) / len(child_node.leaf_descendents))
-            
-            if len(cluster_loss_for_each_descendant) > 0: # sometimes non of the descendants of the node could be in the batch
-                cluster_desc_loss[node.name] = -torch.sum(torch.stack(cluster_loss_for_each_descendant, dim=0)) / len(node.children)
-                # loss += t_weight * tanh_loss[node.name]
-                loss += cluster_desc_weight * cluster_desc_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                if not 'CLUS_DESC' in losses_used:
-                    losses_used.append('CLUS_DESC')
-
-        if (not pretrain) and sep_desc:
-            TOPK = 1 # float('inf') # 3
-            # cluster loss corresponding to every descendant species
-            sep_loss_for_each_descendant = []
-            for child_node in node.children:
-                # if child_node.is_leaf(): # because leaf nodes do not have any descendants
-                #     descendant_idx = torch.tensor([name == child_node.name for name in batch_names])
-
-                #     prototypes = getattr(net.module, '_'+node.name+'_add_on') # getattr(net.module, '_'+node.name+'_classification')
-                #     cosine_similarity = functional_UnitConv2D(features, prototypes.weight, prototypes.bias)
-                #     pooled_cosine_similarity = findCorrespondingToMax(proto_features[node.name], cosine_similarity)
-                    
-                #     descendant_pooled_cs_1, descendant_pooled_cs_2 = pooled_cosine_similarity[descendant_idx].chunk(2)
-
-                #     child_class_idx = node.children_to_labels[child_node.name]
-                #     classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                #     relevant_protos_to_child_node = [proto_idx.item() for proto_idx in torch.nonzero(classification_weights[child_class_idx, :] > 1e-3)]
-
-                #     for proto_idx in relevant_protos_to_child_node:
-                #         num_of_descendants_in_batch = descendant_pooled_cs_1[:, proto_idx].shape[0]
-                #         if (num_of_descendants_in_batch == 0): continue
-                #         topk_nearest_patches_1, _ = torch.topk(descendant_pooled_cs_1[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                #         num_of_descendants_in_batch = descendant_pooled_cs_2[:, proto_idx].shape[0]
-                #         if (num_of_descendants_in_batch == 0): continue
-                #         topk_nearest_patches_2, _ = torch.topk(descendant_pooled_cs_2[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                #         cluster_loss_for_each_descendant.append((torch.mean(topk_nearest_patches_1) + torch.mean(topk_nearest_patches_2)) / 2.)
-
-                # else:
-                for descendant_name in node.leaf_descendents:
-                    if descendant_name in child_node.leaf_descendents:
-                        continue
-                    descendant_idx = torch.tensor([name == descendant_name for name in batch_names])
-                    prototypes = getattr(net.module, '_'+node.name+'_add_on') # getattr(net.module, '_'+node.name+'_classification')
-                    cosine_similarity = torch.abs(functional_UnitConv2D(features, prototypes.weight, prototypes.bias))
-                    pooled_cosine_similarity = findCorrespondingToMax(proto_features[node.name], cosine_similarity)
-                    
-                    descendant_pooled_cs_1, descendant_pooled_cs_2 = pooled_cosine_similarity[descendant_idx].chunk(2)
-
-                    child_class_idx = node.children_to_labels[child_node.name]
-                    classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                    relevant_protos_to_child_node = [proto_idx.item() for proto_idx in torch.nonzero(classification_weights[child_class_idx, :] > 1e-3)]
-                    
-                    for proto_idx in relevant_protos_to_child_node:
-                        num_of_descendants_in_batch = descendant_pooled_cs_1[:, proto_idx].shape[0]
-                        if (num_of_descendants_in_batch == 0): continue
-                        topk_nearest_patches_1, _ = torch.topk(descendant_pooled_cs_1[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                        num_of_descendants_in_batch = descendant_pooled_cs_2[:, proto_idx].shape[0]
-                        if (num_of_descendants_in_batch == 0): continue
-                        topk_nearest_patches_2, _ = torch.topk(descendant_pooled_cs_2[:, proto_idx].squeeze(), min(TOPK, num_of_descendants_in_batch))
-
-                        sep_loss_for_each_descendant.append(((torch.mean(topk_nearest_patches_1) + torch.mean(topk_nearest_patches_2)) / 2.) / len(child_node.leaf_descendents))
-            
-            if len(sep_loss_for_each_descendant) > 0: # sometimes non of the descendants of the node could be in the batch
-                sep_desc_loss[node.name] = torch.sum(torch.stack(sep_loss_for_each_descendant, dim=0)) / len(node.children)
-                # loss += t_weight * tanh_loss[node.name]
-                loss += sep_desc_weight * sep_desc_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                if not 'SEP_DESC' in losses_used:
-                    losses_used.append('SEP_DESC')
-
-
-        if (not pretrain) and (not finetune) and subspace_sep:
-            projection_operators = []
-            subspace_sep_loss[node.name] = 0
-
-            prototypes = getattr(net.module, '_'+node.name+'_add_on')
-            unit_length_prototypes = F.normalize(prototypes.weight, p=2, dim=(1, 2, 3)) # F.normalize(prototypes.weight, p=2, dim=(1, 2, 3))
-
-            for child_node in node.children:
-                # can also try the zero padding idea instead to handle varying subspace sizes
-                child_class_idx = node.children_to_labels[child_node.name]
-                classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
-                relevant_protos_to_child_node = [proto_idx.item() for proto_idx in torch.nonzero(classification_weights[child_class_idx, :] > 0)]
-                child_node_relevant_prototypes = unit_length_prototypes[relevant_protos_to_child_node] # [num_protos, 768, 1, 1]
-                child_node_relevant_prototypes = child_node_relevant_prototypes.squeeze() # [num_protos, 768]
-                child_node_relevant_prototypes_T = child_node_relevant_prototypes.transpose(0, 1) # [768, num_protos]
-                child_node_projection_operator = torch.matmul(child_node_relevant_prototypes_T, child_node_relevant_prototypes, ) # [768, 768]
-                projection_operators.append(child_node_projection_operator)
-
-                if not child_node.is_leaf():
-                    child_projection_operators = []
-
-                    child_prototypes = getattr(net.module, '_'+child_node.name+'_add_on')
-                    unit_length_child_prototypes = F.normalize(child_prototypes.data, p=2, dim=(1, 2, 3))
-
-                    for grand_child_node in child_node.children:
-                        # can also try the zero padding idea instead to handle varying subspace sizes
-                        grand_child_class_idx = child_node.children_to_labels[grand_child_node.name]
-                        child_classification_weights = getattr(net.module, '_'+child_node.name+'_classification').weight
-                        relevant_protos_to_grand_child_node = [proto_idx.item() for proto_idx in torch.nonzero(child_classification_weights[grand_child_class_idx, :] > 0)]
-                        grand_child_node_relevant_prototypes = unit_length_child_prototypes[relevant_protos_to_grand_child_node] # [num_protos, 768, 1, 1]
-                        grand_child_node_relevant_prototypes = grand_child_node_relevant_prototypes.squeeze() # [num_protos, 768]
-                        grand_child_node_relevant_prototypes_T = grand_child_node_relevant_prototypes.transpose(0, 1) # [768, num_protos]
-                        grand_child_node_projection_operator = torch.matmul(grand_child_node_relevant_prototypes_T, grand_child_node_relevant_prototypes, ) # [768, 768]
-                        child_projection_operators.append(grand_child_node_projection_operator)
-                    child_projection_operator = torch.stack(child_projection_operators, dim=0) # [num_grand_children, 768, 768]
-                    projection_operator_1 = torch.unsqueeze(child_node_projection_operator,dim=0)\
-                                                    .unsqueeze(child_node_projection_operator,dim=0)#[1,1,768,768]
-                    projection_operator_2 = torch.unsqueeze(child_projection_operator, dim=0)#[1,num_grand_children,768,768]
-                    child_to_grand_child_distance = torch.norm(projection_operator_1-projection_operator_2+1e-10,p='fro',dim=[2,3]) # [1,num_grand_children,768,768] -> [1,num_grand_children]
-                    subspace_sep_loss[node.name] += -(torch.norm(child_to_grand_child_distance,p=1,dim=[0,1],dtype=torch.double) / \
-                                                                torch.sqrt(torch.tensor(2,dtype=torch.double)).cuda()) / \
-                                                                len(node.children)
-
-            projection_operator = torch.stack(projection_operators, dim=0) # [num_children, 768, 768]
-            projection_operator_1 = torch.unsqueeze(projection_operator,dim=1)#[num_children,1,768,768]
-            projection_operator_2 = torch.unsqueeze(projection_operator, dim=0)#[1,num_children,768,768]
-            pairwise_distance =  torch.norm(projection_operator_1-projection_operator_2+1e-10,p='fro',dim=[2,3]) #[num_children,num_children,768,768]->[num_children,num_children]
-            subspace_sep_loss[node.name] += -(0.5 * torch.norm(pairwise_distance,p=1,dim=[0,1],dtype=torch.double) / \
-                                              torch.sqrt(torch.tensor(2,dtype=torch.double)).to(device)) / \
-                                              len(node.children)
-
-            loss += subspace_sep_weight * subspace_sep_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-            if not 'SS' in losses_used:
-                losses_used.append('SS')
 
         # may not be required
         if (not pretrain) and (not finetune) and kernel_orth:
@@ -1540,19 +1150,6 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
             if not 'KO' in losses_used:
                 losses_used.append('KO')
 
-        if (not pretrain) and ('OOD_ent' in args) and ('y' in args.OOD_ent):
-            OOD_ent_loss_weight =  float(args.OOD_ent.split('|')[1])
-            not_children_idx = torch.tensor([name not in node.leaf_descendents for name in batch_names]) # includes OOD images as well as images belonging to other nodes
-            if not_children_idx.sum().item() > 0:
-                OOD_logits = out[node.name][not_children_idx] # [sum(not_children_idx), node.num_children()]
-                OOD_prob = F.softmax(torch.log1p(OOD_logits**2), dim=1)
-                OOD_ent_loss[node.name] = entropy_loss(OOD_prob)
-                # print(OOD_ent_loss[node.name])
-                # breakpoint()
-                loss += OOD_ent_loss_weight * OOD_ent_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
-                if not 'OOD_ENT' in losses_used:
-                    losses_used.append('OOD_ENT')
-    
         if not pretrain:
             # finetuning or general training
             if ('pipnet_sparsity' in args) and (args.pipnet_sparsity == 'n'):
@@ -1565,11 +1162,6 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                                                 node_y, \
                                                 node.weights) # * (len(node_y) / len(ys[ys != OOD_LABEL]))
 
-            # if node.name == '144+147':
-            #     breakpoint()
-            # if torch.isnan(class_loss[node.name]):
-            #     breakpoint()
-            # loss += cl_weight * class_loss[node.name]
             cl_and_tanh_desc += cl_weight * class_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
             if not 'CL' in losses_used:
                 losses_used.append('CL')
@@ -1584,8 +1176,6 @@ def calculate_loss(epoch, net, additional_network_outputs, features, proto_featu
                 cl_and_tanh_desc += OOD_loss_weight * OOD_loss[node.name] / (len(root.nodes_with_children()) if normalize_by_node_count else 1.)
                 if not 'OOD' in losses_used:
                     losses_used.append('OOD')
-
-                
 
                 
         # Our tanh-loss optimizes for uniformity and was sufficient for our experiments. However, if pretraining of the prototypes is not working well for your dataset, you may try to add another uniformity loss from https://www.tongzhouwang.info/hypersphere/ Just uncomment the following three lines

@@ -601,17 +601,17 @@ def run_pipnet(args=None):
         
         print("\n Epoch", epoch, "frozen:", frozen, flush=True)            
         if (epoch==args.epochs or epoch%30==0) and args.epochs>1:
-            # SET SMALL WEIGHTS TO ZERO
-            with torch.no_grad():
-                torch.set_printoptions(profile="full")
-                for attr in dir(net.module):
-                    if attr.endswith('_classification'):
-                        getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
-                        print(f"{attr} weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
-                              (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
-                        if args.bias:
-                            print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
-                torch.set_printoptions(profile="default")
+            # # SET SMALL WEIGHTS TO ZERO
+            # with torch.no_grad():
+            #     torch.set_printoptions(profile="full")
+            #     for attr in dir(net.module):
+            #         if attr.endswith('_classification'):
+            #             getattr(net.module, attr).weight.copy_(torch.clamp(getattr(net.module, attr).weight.data - 0.001, min=0.)) 
+            #             print(f"{attr} weights: ", getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)], \
+            #                   (getattr(net.module, attr).weight[getattr(net.module, attr).weight.nonzero(as_tuple=True)]).shape, flush=True)
+            #             if args.bias:
+            #                 print(f"{attr} bias: ", getattr(net.module, attr).bias, flush=True)
+            #     torch.set_printoptions(profile="default")
 
             for node in root.nodes_with_children():
                 classification_weights = getattr(net.module, '_'+node.name+'_classification').weight
@@ -678,7 +678,7 @@ def run_pipnet(args=None):
             net.eval()
             torch.save({'model_state_dict': net.state_dict(), 'optimizer_net_state_dict': optimizer_net.state_dict(), 'optimizer_classifier_state_dict': optimizer_classifier.state_dict()}, os.path.join(os.path.join(args.log_dir, 'checkpoints'), 'net_trained'))
 
-            if epoch%30 == 0:
+            if epoch%5 == 0:
                 # visualize prototypes
                 # for node in root.nodes_with_children():
                 #     topks = visualize_topk(net, projectloader, node.num_children(), device, f'visualised_prototypes_topk_ep={epoch}/{node.name}', args, node=node)

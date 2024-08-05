@@ -35,12 +35,20 @@
 # --freeze_epochs 10 \
 # --mask_prune_overspecific 'y|0|1.1' \
 
+# --epochs 60 \
+# --epochs_pretrain 3 \
+# --epochs_finetune 0 \
+# --epochs_finetune_classifier 3 \
+# --epochs_finetune_mask_prune 60 \
+# --freeze_epochs 10 \
+
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
-TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=8 main_dist.py --log_dir './runs/227-INAT-BIRDS_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_INAT-BIRDS_WeightedCE_with-equalize-aug_img=224' \
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=8 main_dist.py --log_dir './runs/234-INAT-BIRDS_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_INAT-BIRDS_WeightedCE_with-equalize-aug_img=224' \
+               --state_dict_dir_fullmodel '/home/harishbabu/projects/PIPNet/runs/232-INAT-BIRDS_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_INAT-BIRDS_WeightedCE_with-equalize-aug_img=224/checkpoints/net_trained_3' \
                --training_wheels "n" \
                --copy_files "n" \
-               --wandb "y" \
+               --wandb "n" \
                --dataset INAT-BIRDS \
                --net convnext_tiny_26 \
                --batch_size 64 \

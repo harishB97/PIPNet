@@ -102,6 +102,10 @@ def get_args() -> argparse.Namespace:
                         type=str,
                         default='', 
                         help='The directory containing a state dict with a pretrained PIP-Net. Only the backbone i.e. "_net" will be loaded')
+    parser.add_argument("--state_dict_dir_fullmodel",
+                        type=str,
+                        default='', 
+                        help='The directory containing a state dict with a pretrained PIP-Net. Loads full model, ensure phylogeny matches')
     parser.add_argument('--freeze_epochs',
                         type=int,
                         default = 10,
@@ -392,7 +396,7 @@ def get_args() -> argparse.Namespace:
     args = parser.parse_args()
     if len(args.log_dir.split('/'))>2:
         if not os.path.exists(args.log_dir):
-            os.makedirs(args.log_dir)
+            os.makedirs(args.log_dir, exist_ok=True)
 
 
     return args

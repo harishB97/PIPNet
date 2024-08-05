@@ -165,6 +165,36 @@ def get_data(args: argparse.Namespace):
                                     os.path.join(base_path, 'train_segmented_imagenet_background'), # train_dir_pretrain
                                     os.path.join(base_path, 'test_segmented_imagenet_background_full'),
                                     disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+    if args.dataset =='FV':
+        base_path = '/projects/ml4science/FishVistaForHCompNet/Max30ImagesPerSpecies/Images'
+        return get_birds(True, os.path.join(base_path, 'train'), # train_dir
+                                os.path.join(base_path, 'train'), # project_dir
+                                os.path.join(base_path, 'val'), # test_dir
+                                args.image_size, args.seed, args.validation_size, 
+                                os.path.join(base_path, 'train'), # train_dir_pretrain
+                                os.path.join(base_path, 'val'),
+                                disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+    if args.dataset =='FV-224':
+        base_path = '/projects/ml4science/FishVistaForHCompNet/Max30ImagesPerSpecies/Images_224'
+        return get_birds(True, os.path.join(base_path, 'train'), # train_dir
+                                os.path.join(base_path, 'train'), # project_dir
+                                os.path.join(base_path, 'val'), # test_dir
+                                args.image_size, args.seed, args.validation_size, 
+                                os.path.join(base_path, 'train'), # train_dir_pretrain
+                                os.path.join(base_path, 'val'),
+                                disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+    if args.dataset =='INAT-BIRDS':
+        # base_path = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/Images_symlink'
+        base_path_train = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/ImagesMini'
+        base_path_val = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/Images'
+        return get_birds(True, os.path.join(base_path_train, 'train'), # train_dir
+                                os.path.join(base_path_train, 'train'), # project_dir
+                                os.path.join(base_path_val, 'val'), # test_dir
+                                args.image_size, args.seed, args.validation_size, 
+                                os.path.join(base_path_train, 'train'), # train_dir_pretrain
+                                os.path.join(base_path_val, 'val'),
+                                disable_transform2 = args.disable_transform2 == 'y') # test_dir_projection
+
     if args.dataset =='CUB-190-imgnet-hpnet-224':
         base_path_hpnet = '/projects/ml4science/harishbabu/data/CUB_190_hpnet_224/dataset_imgnet_hpnet_bb_crop'
         base_path = '/projects/ml4science/harishbabu/data/CUB_190_pt_224/dataset_segmented_imgnet_pt'

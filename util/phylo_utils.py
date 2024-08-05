@@ -77,7 +77,8 @@ def construct_phylo_tree(phylogeny_path):
                 node.name = name
             return name
         else:
-            return node.name[4:7] # assumes cub name in the format cub_122_Harris_Sparrow
+            # return node.name[4:7] # assumes cub name in the format cub_122_Harris_Sparrow
+            return node.name.split('_')[1] # assumes name in the format like cub_122_Harris_Sparrow or ina_1223_species_name
 
     def build_tree(parentnode: Node, ete3_node: TreeNode):
         

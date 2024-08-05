@@ -25,12 +25,12 @@ def update_tree_file(tree_file_path, name_mapping, output_tree_file_path):
     print(f"Updated tree file saved to: {output_tree_file_path}")
 
 # Usage
-symlink_directory = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/Images_symlink/train'
-tree_file_path = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/inat_bird_final_tree.tre'
-output_tree_file_path = '/fastscratch/ksmehrab/INaturalist/INatBirdForHCompNet/inat_bird_final_tree_renamed.tre'
+symlink_directory = '/projects/ml4science/FishVistaForHCompNet/Max30ImagesPerSpecies/Images/train'
+tree_file_path = '/projects/ml4science/FishVistaForHCompNet/Max30ImagesPerSpecies/fv419_final_tree.tre'
+output_tree_file_path = '/projects/ml4science/FishVistaForHCompNet/Max30ImagesPerSpecies/fv419_final_tree_renamed.tre'
 
 # Get name mapping from existing symlinks
-name_mapping = get_name_mapping(symlink_directory)
+name_mapping = get_name_mapping(symlink_directory, prefix='fvi')
 
 # print(name_mapping)
 
