@@ -42,19 +42,22 @@
 # --epochs_finetune_mask_prune 60 \
 # --freeze_epochs 10 \
 
+# --state_dict_dir_fullmodel "/home/harishbabu/projects/PIPNet/runs/242-ARC-1GPU-FV-224_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_WeightedCE_with-equalize-aug_img=224/checkpoints/net_trained_60" \
+
+
 # DO THIS AFTER TRAINING WHEELS -|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|-|
 # set finetune back to 5, epochs_pretrain=30, epochs=60, freeze_epochs=10
 # OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=1 TORCH_DISTRIBUTED_DEBUG=DETAIL torchrun --nproc_per_node=1 main_dist.py
-CUDA_VISIBLE_DEVICES=0 python /home/harishbabu/projects/PIPNet/main.py --log_dir '/home/harishbabu/projects/PIPNet/runs/237-FV-224_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_WeightedCE_with-equalize-aug_img=224' \
+python /home/harishbabu/projects/PIPNet/main.py --log_dir '/home/harishbabu/projects/PIPNet/runs/242_ARC1GPU_FV-224_nprotos=10pc-cnext26_PruningBF=1.1NaiveHPIPNetMaskL1=0.5MaskTrainExtra=15epsEps=60Cl=2.0TanhDesc=0.05MinCont=0.1_WeightedCE_with-equalize-aug_img=224' \
                --training_wheels "n" \
-               --copy_files "n" \
-               --wandb "n" \
+               --copy_files "y" \
+               --wandb "y" \
                --dataset FV-224 \
                --net convnext_tiny_26 \
                --batch_size 128 \
                --batch_size_pretrain 256 \
-               --epochs 60 \
-               --epochs_pretrain 10 \
+               --epochs 100 \
+               --epochs_pretrain 3 \
                --epochs_finetune 0 \
                --epochs_finetune_classifier 3 \
                --epochs_finetune_mask_prune 60 \
@@ -69,7 +72,7 @@ CUDA_VISIBLE_DEVICES=0 python /home/harishbabu/projects/PIPNet/main.py --log_dir
                --dir_for_saving_images 'Visualization_results' \
                --seed 1 \
                --gpu_ids '' \
-               --num_workers 1 \
+               --num_workers 2 \
                --phylo_config /home/harishbabu/projects/PIPNet/configs/fv_fishes_phylogeny.yaml \
                --experiment_note "" \
                --kernel_orth "y" \
