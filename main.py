@@ -75,6 +75,8 @@ def run_pipnet(args=None):
         os.environ['WANDB_DISABLED'] = 'true'
         print('Disabled wand')
 
+    args.protopool = "n"
+
     if (args.align_pf == 'y') and not ('y' in args.softmax or args.gumbel_softmax == 'y'):
         raise Exception('Use align_pf loss only when softmax or gumbel softmax is turned on')
 
@@ -82,6 +84,9 @@ def run_pipnet(args=None):
         raise Exception('Only use minmaximize loss when args.protopool == "n"')
     
     if ('y' in args.tanh_desc) and (args.protopool == 'y'):
+        print('protopool', args.protopool)
+        print('tanh_desc', args.tanh_desc)
+        print('state_dict_dir_fullmodel', args.state_dict_dir_fullmodel)
         raise Exception('Only use tanh_desc loss when args.protopool == "n"')
  
     # Create a logger
@@ -338,6 +343,27 @@ def run_pipnet(args=None):
             #             torch.nn.init.constant_(getattr(net.module, attr).bias, val=0.)
             #         print(f"{attr} layer initialized with mean", torch.mean(getattr(net.module, attr).weight).item(), flush=True)
             
+            # initialize multiplier
+            torch.nn.init.constant_(net.module._multiplier, val=2.)
+            net.module._multiplier.requires_grad = False
+
+        elif args.state_dict_dir_fullmodel != '':
+            checkpoint = torch.load(args.state_dict_dir_fullmodel,map_location=str(device))
+            net.load_state_dict(checkpoint['model_state_dict'], strict=True)
+            try:
+                optimizer_net.load_state_dict(checkpoint['optimizer_net_state_dict'])
+            except:
+                print('-'*25, 'Unable to load optimizer_net_state_dict')
+                pass
+            
+            try:
+                optimizer_classifier.load_state_dict(checkpoint['optimizer_classifier_state_dict'])
+            except:
+                print('-'*25, 'Unable to load optimizer_classifier_state_dict')
+                pass
+
+            print("/*"*20, f"Full model loaded from {args.state_dict_dir_fullmodel}", flush=True)
+
             # initialize multiplier
             torch.nn.init.constant_(net.module._multiplier, val=2.)
             net.module._multiplier.requires_grad = False
