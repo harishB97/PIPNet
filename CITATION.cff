@@ -1,0 +1,56 @@
+abstract: "A grand challenge in biology is to discover evolutionary traits - features of organisms common to a group of species with a shared ancestor in the tree of life (also referred to as phylogenetic tree). With the growing availability of  image repositories in biology, there is a tremendous opportunity to discover evolutionary traits directly from images in the form of a hierarchy of prototypes. However, current prototype-based methods are mostly designed to operate over a flat structure of classes and face several challenges in discovering hierarchical prototypes, including the issue of learning over-specific features at internal nodes. To overcome these challenges, we introduce the framework of Hierarchy aligned Commonality through Prototypical Networks (HComP-Net). We empirically show that HComP-Net learns prototypes that are accurate, semantically consistent, and generalizable to unseen species in comparison to baselines on birds, butterflies, and fishes datasets."
+authors:
+- family-names: Manogaran
+  given-names: Harish Babu
+cff-version: 1.0.0
+date-released: "2024-09-04"
+keywords:
+  - "Prototypical networks"
+  - "Phylogeny"
+  - evolution
+  - imageomics
+  - "knowledge-guided"
+  - CV
+  - biology
+  - images
+  
+license: MIT
+message: "If you find this software helpful in your research, please cite both the software and our paper."
+repository-code: "https://github.com/Imageomics/HComPNet"
+title: "HComP-Net"
+version: 1.0.0
+type: software
+preferred-citation:
+  type: article
+  authors:
+    - family-names: Manogaran
+      given-names: Harish Babu
+    - family-names: Maruf
+      given-names: "M."
+    - family-names: Daw
+      given-names: Arka 
+    - family-names: Mehrab
+      given-names: Kazi Sajeed
+    - family-names: Charpentier
+      given-names: Caleb
+    - family-names: Uyeda
+      given-names: "Josef C."
+    - family-names: Dahdul
+      given-names: Wasila
+    - family-names: Thompson
+      given-names: "Matthew J"
+    - family-names: Campolongo
+      given-names: "Elizabeth G"
+    - family-names: Provost
+      given-names: "Kaiya L"
+    - family-names: Mabee
+      given-names: "Paula M."
+    - family-names: Lapp
+      given-names: Hilmar
+    - family-names: Karpatne
+      given-names: Anuj
+
+  title: "What Do You See in Common? Learning Hierarchical Prototypes over Tree-of-Life to Discover Evolutionary Traits"
+  year: 2024
+  journal: 
+  doi: 
